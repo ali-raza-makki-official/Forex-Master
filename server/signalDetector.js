@@ -17,6 +17,9 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   const gold = livePrices['XAUUSD'];
   if (!gold) return;
 
+  // ── PRE-LAYER: Get System Settings ─────────────────────
+  const settings = await db.getSystemSettings();
+
   // ── LAYER 1: Session filter ─────────────────────────────
   const session = await getSessionStatus();
   if (broadcastFn) broadcastFn({ event: 'session_status', ...session });
@@ -26,8 +29,9 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     return;
   }
 
-  // ── LAYER 2: Spread monitor ─────────────────────────────
-  const spread = checkSpread('XAUUSD', gold.bid, gold.ask);
+  // ── LAYER 2: Spread monitor (Using dynamic DB limit) ────
+  const maxSpread = settings.max_spread || 5.0;
+  const spread = checkSpread('XAUUSD', gold.bid, gold.ask, maxSpread);
   if (broadcastFn) broadcastFn({ event: 'spread_status', ...spread });
 
   if (!spread.allowed) {
@@ -36,7 +40,6 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   }
 
   // ── Calculate leader moves (last 2 minutes) ─────────────
-  const settings = await db.getSystemSettings();
   let parsedLagging = [];
   try {
     if (settings.lagging_symbols) {

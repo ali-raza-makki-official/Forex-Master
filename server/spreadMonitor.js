@@ -22,12 +22,13 @@ function startSpreadBroadcast(livePrices, broadcastFn) {
     }, 1000); // Check every second
 }
 
-function checkSpread(symbol, bid, ask) {
+function checkSpread(symbol, bid, ask, maxSpread = null) {
+    const limit = maxSpread !== null ? maxSpread : maxAllowedSpread;
     const pips = parseFloat((Math.abs(ask - bid) * 10).toFixed(1));
     return {
-        allowed: pips <= maxAllowedSpread,
+        allowed: pips <= limit,
         pips: pips,
-        reason: pips > maxAllowedSpread ? `Spread too high: ${pips} pips` : null
+        reason: pips > limit ? `Spread too high: ${pips} pips (Limit: ${limit})` : null
     };
 }
 

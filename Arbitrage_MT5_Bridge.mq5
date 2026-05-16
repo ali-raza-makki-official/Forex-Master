@@ -13,6 +13,7 @@
 input string   ServerHost     = "127.0.0.1"; // Node Server IP
 input int      ServerPort     = 3001;        // Node Server Port
 input int      PingIntervalS  = 1;           // Heartbeat Interval (Seconds)
+input int      MaxSlippage    = 3;           // Max Slippage (Points)
 
 //--- WinAPI Declarations for Low-latency Winsock Sockets (Allow DLL Imports must be checked!)
 #import "ws2_32.dll"
@@ -35,7 +36,9 @@ uint GetLastError();
 ulong     m_socket = 0;
 bool      m_connected = false;
 datetime  m_last_ping = 0;
-uchar     m_rx_buffer[8192];
+uchar     m_rx_buffer[65536]; // Increased to 64KB for safety
+string    m_processed_ids[];  // Cache for duplicate prevention
+string    m_command_queue[];  // Queue for simultaneous signals
 string    m_handshake_key = "dGhlIHNhbXBsZSBub25jZQ==";
 
 //--- Multitasking Symbol Streaming Configuration
@@ -59,6 +62,9 @@ int OnInit()
       Print("[ERROR] WSAStartup failed with error: ", res);
       return(INIT_FAILED);
    }
+   
+   // Seed random for WebSocket masking
+   MathSrand(uint(TimeLocal()));
    
    // Run OnTimer at 100 millisecond resolution for high-frequency multi-pair tracking
    EventSetMillisecondTimer(100);
@@ -126,6 +132,14 @@ void OnTimer()
       
       // Receive and process any pending socket data
       ReceiveData();
+      
+      // Process Command Queue (Sequential Execution to prevent Trade Context Busy)
+      if(ArraySize(m_command_queue) > 0)
+      {
+         string cmd = m_command_queue[0];
+         ProcessCommand(cmd);
+         ArrayRemove(m_command_queue, 0, 1);
+      }
    }
 }
 
@@ -136,6 +150,20 @@ void OnTick()
 {
    // Stream all prices instantly if a chart tick occurs (for sub-millisecond response)
    StreamPrices();
+   
+   // Also check for incoming trade commands instantly on every price tick (latency optimization)
+   if(m_connected)
+   {
+      ReceiveData();
+      
+      // Process Command Queue instantly if a tick arrives
+      if(ArraySize(m_command_queue) > 0)
+      {
+         string cmd = m_command_queue[0];
+         ProcessCommand(cmd);
+         ArrayRemove(m_command_queue, 0, 1);
+      }
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -294,13 +322,17 @@ void SendWebSocketFrame(string message)
    
    // Calculate WebSocket Frame
    int frame_size = 0;
-   uchar frame[8192];
+   uchar frame[]; 
+   ArrayResize(frame, len + 14); // Dynamic allocation (max header is 14 bytes)
    
    frame[0] = 0x81; // FIN + Text frame
    
-   // Masking is mandatory for client-to-server frames
-   uchar mask[4] = {0x12, 0x34, 0x56, 0x78}; 
-   
+   // Masking is mandatory for client-to-server frames - Generate random 32-bit masking key per RFC 6455
+   uchar mask[4];
+   mask[0] = uchar(MathRand() % 256);
+   mask[1] = uchar(MathRand() % 256);
+   mask[2] = uchar(MathRand() % 256);
+   mask[3] = uchar(MathRand() % 256);   
    if(len < 126)
    {
       frame[1] = uchar(len | 0x80); // Set Mask bit to 1
@@ -383,7 +415,7 @@ void ReceiveData()
 {
    if(!m_connected || m_socket == 0) return;
    
-   int bytes = recv(m_socket, m_rx_buffer, 8192, 0);
+   int bytes = recv(m_socket, m_rx_buffer, 65536, 0);
    if(bytes == 0)
    {
       Print("[BRIDGE] 🔴 Connection closed gracefully by remote server.");
@@ -409,6 +441,14 @@ void ReceiveData()
       return;
    }
    
+   if(opcode == 9) // Ping frame
+   {
+      // Respond with Pong (opcode 10)
+      uchar pong[2] = {0x8A, 0x00};
+      send(m_socket, pong, 2, 0);
+      return;
+   }
+   
    if(opcode == 1) // Text frame
    {
       ulong len = m_rx_buffer[1] & 0x7F;
@@ -422,7 +462,11 @@ void ReceiveData()
       
       // Node server doesn't mask server-to-client packets, decode straight
       string json_str = CharArrayToString(m_rx_buffer, payload_offset, int(len));
-      ProcessCommand(json_str);
+      
+      // Add to queue instead of processing immediately (Order Queue Implementation)
+      int qSize = ArraySize(m_command_queue);
+      ArrayResize(m_command_queue, qSize + 1);
+      m_command_queue[qSize] = json_str;
    }
 }
 
@@ -441,6 +485,23 @@ void ProcessCommand(string json)
       double sl_points = StringToDouble(ExtractJsonString(json, "\"sl\""));
       double tp_points = StringToDouble(ExtractJsonString(json, "\"tp\""));
       
+      string reqId = ExtractJsonString(json, "\"id\"");
+      
+      // Duplicate Order Prevention Check
+      bool already_processed = false;
+      for(int i = 0; i < ArraySize(m_processed_ids); i++) {
+         if(m_processed_ids[i] == reqId) { already_processed = true; break; }
+      }
+      if(already_processed) {
+         Print("[BRIDGE] ⚠️ Duplicate Trade ID Ignored: ", reqId);
+         return;
+      }
+      // Add to cache
+      int cacheSize = ArraySize(m_processed_ids);
+      ArrayResize(m_processed_ids, cacheSize + 1);
+      m_processed_ids[cacheSize] = reqId;
+      if(ArraySize(m_processed_ids) > 100) ArrayRemove(m_processed_ids, 0, 1); // Keep last 100
+      
       Print("[BRIDGE] 📥 Trade Command Received: ", type, " ", volume, " Lots of ", symbol);
       
       // Execute the order inside MT5
@@ -457,7 +518,7 @@ void ProcessCommand(string json)
       request.type = (type == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       request.price = (type == "BUY") ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
       request.price = NormalizeDouble(request.price, digits);
-      request.deviation = 10;
+      request.deviation = MaxSlippage;
       request.magic = 123456;
       
       // Dynamic Filling Mode Resolution
