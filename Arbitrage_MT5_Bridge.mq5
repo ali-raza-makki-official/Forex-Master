@@ -468,10 +468,17 @@ void ReceiveData()
          
          string json_str = CharArrayToString(m_rx_buffer, offset + payload_offset, int(len));
          
-         // Queue command
+         // Queue command with safety bounds check (prevent memory leak from flood)
          int qSize = ArraySize(m_command_queue);
-         ArrayResize(m_command_queue, qSize + 1);
-         m_command_queue[qSize] = json_str;
+         if(qSize < 100)
+         {
+            ArrayResize(m_command_queue, qSize + 1);
+            m_command_queue[qSize] = json_str;
+         }
+         else
+         {
+            Print("[BRIDGE] ⚠️ Command queue overflow (100). Dropping incoming command to prevent memory leak.");
+         }
          
          offset += payload_offset + int(len);
       }

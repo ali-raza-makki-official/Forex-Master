@@ -1,4 +1,20 @@
 require('dotenv').config({ path: '../.env.local' });
+
+// ── ENVIRONMENT CONFIGURATION VALIDATION SHIELD ──
+const fs = require('fs');
+const path = require('path');
+const envPath = path.resolve(__dirname, '../.env.local');
+
+if (!fs.existsSync(envPath)) {
+  console.warn(`[SERVER SETUP ⚠️] .env.local configuration file was not found at: ${envPath}. Falling back to default system values.`);
+} else {
+  console.log(`[SERVER SETUP 🟢] Configuration file successfully verified at: ${envPath}`);
+}
+
+if (!process.env.DATABASE_URL) {
+  console.warn('[SERVER SETUP ⚠️] DATABASE_URL env variable is missing! Falling back to local default: mysql://root:@localhost:3306/gold_scalper');
+}
+
 const WebSocket = require('ws');
 const http = require('http');
 const { v4: uuidv4 } = require('uuid');
@@ -197,7 +213,9 @@ let latestPositions = [];
 let latestBalance = 0;
 let autoScalpEnabled = true;
 let startOfDayBalance = 0;
+let lastBalanceResetDate = '';
 let cachedSymbols = null; // Store for new frontend connections
+const pendingTrades = new Map();
 
 // Run lock checker every 5 seconds
 setInterval(async () => {
@@ -275,9 +293,9 @@ const mt5Clients = new Map();
 let mt5ClientCounter = 0;
 function getActiveMT5() {
   const primary = mt5Clients.get('primary');
-  if (primary && primary.readyState === 1) return primary;
+  if (primary && primary.readyState === WebSocket.OPEN) return primary;
   const backup = mt5Clients.get('backup');
-  if (backup && backup.readyState === 1) return backup;
+  if (backup && backup.readyState === WebSocket.OPEN) return backup;
   return null;
 }
 
@@ -338,85 +356,100 @@ async function handleMT5Message(msg, ws) {
     
     // Dynamic Time-Based Pruning: Keep last 2.5 minutes (150 seconds) of ticks
     const cutoff = Date.now() - (150 * 1000);
-    while (priceHistory[msg.symbol].length > 0 && priceHistory[msg.symbol][0].time < cutoff) {
-      priceHistory[msg.symbol].shift();
-    }
+    priceHistory[msg.symbol] = priceHistory[msg.symbol].filter(p => p.time >= cutoff);
     
     await savePriceToDB(msg.symbol, msg.bid, msg.ask).catch(e => console.error("DB Error:", e));
     
     onPriceTick(msg.symbol, msg.bid, msg.ask);
     
     if (msg.symbol === 'XAUUSD') {
-      const signal = await detectSignal(livePrices, priceHistory, null, db, broadcastToFrontend);
-      
-      if (signal && autoScalpEnabled && signal.action === 'EXECUTE') {
-        const settings = await db.getSystemSettings();
+      try {
+        const signal = await detectSignal(livePrices, priceHistory, null, db, broadcastToFrontend);
         
-        // ── RISK SHIELD: Dynamic Loss Limit & Daily Drawdown Block ──
-        const tradeStats = await db.getTradeStats();
-        const dailyLossLimit = settings.daily_loss_limit || 50.0;
-        const startBalance = startOfDayBalance || latestBalance;
-        
-        const risk = checkRiskSafety(tradeStats, latestBalance, startBalance, dailyLossLimit);
-        
-        if (risk.isBlocked) {
-          console.log(`[RISK SHIELD] 🛡️ Trade Execution Blocked: ${risk.reason}`);
-          const { sendRiskAlert } = require('./telegramAlert');
-          await sendRiskAlert(risk.reason, `Balance: $${latestBalance} | StartOfDay: $${startBalance} | Limit: $${dailyLossLimit}`, db);
-          return;
-        }
-
-        // ── POSITION GUARD: Duplicate & Reversal Conflict Shield ──
-        const symbol = 'XAUUSD';
-        const type = signal.type;
-        
-        // Check for duplicate trade (same direction)
-        const duplicate = latestPositions.find(p => p.symbol === symbol && p.type === type);
-        if (duplicate) {
-          console.log(`[POSITION GUARD] 🛡️ Duplicate ${type} trade blocked for ${symbol}. Position #${duplicate.id || duplicate.ticket} already active.`);
-          return;
-        }
-
-        // Check for opposite trade (reversal scenario)
-        const opposite = latestPositions.find(p => p.symbol === symbol && p.type !== type);
-        if (opposite) {
-          console.log(`[POSITION GUARD] 🔄 Opposite trade detected! Reversing position. Closing active ${opposite.type} #${opposite.id || opposite.ticket} before opening new ${type}.`);
-          closePosition(opposite.id || opposite.ticket);
+        if (signal && autoScalpEnabled && signal.action === 'EXECUTE') {
+          const settings = await db.getSystemSettings();
           
-          // Wait 200ms for MT5 to process the closure before sending the new trade request
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
+          // ── RISK SHIELD: Dynamic Loss Limit & Daily Drawdown Block ──
+          const tradeStats = await db.getTradeStats();
+          const dailyLossLimit = settings.daily_loss_limit || 50.0;
+          const startBalance = startOfDayBalance || latestBalance;
+          
+          const risk = checkRiskSafety(tradeStats, latestBalance, startBalance, dailyLossLimit);
+          
+          if (risk.isBlocked) {
+            console.log(`[RISK SHIELD] 🛡️ Trade Execution Blocked: ${risk.reason}`);
+            const { sendRiskAlert } = require('./telegramAlert');
+            await sendRiskAlert(risk.reason, `Balance: $${latestBalance} | StartOfDay: $${startBalance} | Limit: $${dailyLossLimit}`, db);
+            return;
+          }
 
-        const lotSize = settings.lot_size || 0.01;
-        
-        console.log(`[AUTO-SCALP] Executing ${signal.type} | Volume: ${lotSize} | Score: ${signal.score}`);
-        executeTrade('XAUUSD', signal.type, lotSize, signal.sl, signal.tp);
+          // ── POSITION GUARD: Duplicate & Reversal Conflict Shield ──
+          const symbol = 'XAUUSD';
+          const type = signal.type;
+          
+          // Check for duplicate trade (same direction)
+          const duplicate = latestPositions.find(p => p.symbol === symbol && p.type === type);
+          if (duplicate) {
+            console.log(`[POSITION GUARD] 🛡️ Duplicate ${type} trade blocked for ${symbol}. Position #${duplicate.id || duplicate.ticket} already active.`);
+            return;
+          }
+
+          // Check for opposite trade (reversal scenario)
+          const opposite = latestPositions.find(p => p.symbol === symbol && p.type !== type);
+          if (opposite) {
+            console.log(`[POSITION GUARD] 🔄 Opposite trade detected! Reversing position. Closing active ${opposite.type} #${opposite.id || opposite.ticket} before opening new ${type}.`);
+            closePosition(opposite.id || opposite.ticket);
+            
+            // Wait 200ms for MT5 to process the closure before sending the new trade request
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+
+          const lotSize = settings.lot_size || 0.01;
+          
+          console.log(`[AUTO-SCALP] Executing ${signal.type} | Volume: ${lotSize} | Score: ${signal.score}`);
+          executeTrade('XAUUSD', signal.type, lotSize, signal.sl, signal.tp);
+        }
+      } catch (err) {
+        console.error('[SERVER] Signal detection / execution error:', err.message);
       }
     }
     
     broadcastToFrontend({ event: 'price_update', ...msg });
   }
   else if (msg.event === 'heartbeat') {
-    const newPositions = msg.positions || [];
+    const newPositions = Array.isArray(msg.positions) ? msg.positions : [];
     
-    // Detect TP/SL or manual closures not triggered by the dashboard
-    for (const oldPos of latestPositions) {
-      const exists = newPositions.find(p => p.id === oldPos.id || p.ticket === oldPos.id);
-      if (!exists) {
-        console.log(`[SERVER] Position #${oldPos.id} disappeared from heartbeat. Marking as closed.`);
-        handleExternalClosure(oldPos).catch(e => console.error("Closure Handle Error:", e));
+    // Detect TP/SL or manual closures not triggered by the dashboard (with safety check)
+    if (Array.isArray(latestPositions)) {
+      for (const oldPos of latestPositions) {
+        if (!oldPos) continue;
+        const exists = newPositions.find(p => p && (p.id === oldPos.id || p.ticket === oldPos.id));
+        if (!exists) {
+          console.log(`[SERVER] Position #${oldPos.id} disappeared from heartbeat. Marking as closed.`);
+          handleExternalClosure(oldPos).catch(e => console.error("Closure Handle Error:", e));
+        }
       }
     }
 
     latestPositions = newPositions;
     latestBalance   = msg.balance;
-    if (startOfDayBalance === 0 && msg.balance) {
+    
+    // Implement daily balance reset for correct daily drawdown and P/L calculations
+    const today = new Date().toDateString();
+    if (lastBalanceResetDate !== today && msg.balance) {
       startOfDayBalance = msg.balance;
-      console.log(`[SERVER] Initial start-of-day balance set to: $${startOfDayBalance}`);
+      lastBalanceResetDate = today;
+      console.log(`[SERVER] Daily start-of-day balance reset to: $${startOfDayBalance}`);
     }
     broadcastToFrontend({ event: 'heartbeat', ...msg });
   }
   else if (msg.event === 'trade_response') {
+    // Clear safety timeout if transaction ID matches
+    if (msg.id && pendingTrades.has(msg.id)) {
+      clearTimeout(pendingTrades.get(msg.id));
+      pendingTrades.delete(msg.id);
+    }
+    
     broadcastToFrontend({ event: 'trade_response', ...msg });
     if (msg.success) {
       try {
@@ -445,11 +478,45 @@ async function handleMT5Message(msg, ws) {
 }
 
 function executeTrade(symbol, type, volume, sl, tp) {
+  // Input Validation Shield
+  if (!symbol || typeof symbol !== 'string') {
+    throw new Error('Invalid trade symbol: ' + symbol);
+  }
+  if (!['BUY', 'SELL'].includes(type)) {
+    throw new Error('Invalid trade type: ' + type);
+  }
+  if (typeof volume !== 'number' || volume <= 0) {
+    throw new Error('Invalid trade volume: ' + volume);
+  }
+  if (sl !== undefined && sl !== null && (typeof sl !== 'number' || sl < 0)) {
+    throw new Error('Invalid Stop Loss value: ' + sl);
+  }
+  if (tp !== undefined && tp !== null && (typeof tp !== 'number' || tp < 0)) {
+    throw new Error('Invalid Take Profit value: ' + tp);
+  }
+
   if (!getActiveMT5() || getActiveMT5().readyState !== WebSocket.OPEN) {
     return { success: false, error: 'MT5 not connected' };
   }
   
   const id = uuidv4();
+  
+  // Safety timeout: If no response in 5 seconds, reply failure to prevent frontend from hanging
+  const timeoutId = setTimeout(() => {
+    if (pendingTrades.has(id)) {
+      console.warn(`[SERVER] ⚠️ Trade execution transaction timeout for ID: ${id}`);
+      broadcastToFrontend({
+        event: 'trade_response',
+        id,
+        success: false,
+        error: 'MT5 Execution Timeout (5000ms)'
+      });
+      pendingTrades.delete(id);
+    }
+  }, 5000);
+  
+  pendingTrades.set(id, timeoutId);
+
   getActiveMT5().send(JSON.stringify({
     action: 'trade',
     id,

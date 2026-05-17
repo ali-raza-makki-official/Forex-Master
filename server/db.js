@@ -10,6 +10,13 @@ async function getDB() {
       connectionLimit: 10,
       queueLimit: 0
     });
+    try {
+      const conn = await pool.getConnection();
+      conn.release();
+    } catch (e) {
+      pool = null;
+      throw new Error('Database connection failed: ' + e.message);
+    }
   }
   return pool;
 }
@@ -72,6 +79,9 @@ async function getHFTAnalytics() {
       'DXY': 2.1, 'US10Y': 5.4, 'SPX500': 12.8,
       'USDCHF': 45.2, 'XAGUSD': 120.5, 'XAUUSD': 240.0
     };
+
+    // Fallback safeguard if table is empty or query fails
+    if (!rows || !Array.isArray(rows)) return [];
 
     return rows.map(r => ({
       symbol: r.symbol,
