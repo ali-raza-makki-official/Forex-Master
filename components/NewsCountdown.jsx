@@ -27,7 +27,7 @@ export default function NewsCountdown({ newsData }) {
     return () => clearInterval(interval);
   }, [newsData]);
 
-  if (!newsData || !newsData.nextNewsMs || (timeLeft === null && !newsData.isNewsActive)) {
+  if (!newsData || !newsData.nextNewsMs || (timeLeft === null && !newsData.isActive)) {
     return null;
   }
 
@@ -40,7 +40,7 @@ export default function NewsCountdown({ newsData }) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const isActive = newsData.isNewsActive;
+  const isActive = newsData.isActive;
 
   return (
     <div className={`w-full h-10 sticky top-0 z-40 border-b flex items-center px-4 transition-all duration-500 overflow-hidden ${

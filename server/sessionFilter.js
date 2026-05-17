@@ -13,9 +13,10 @@ function isSessionActive() {
     
     const isLondon = (hour >= 7 && hour < 12);
     const isNewYork = (hour >= 13 && hour < 18);
+    const isOverlap = (hour >= 12 && hour < 13);
     
-    // We also allow overlap and 1 hour before/after for transition
-    return isLondon || isNewYork;
+    // London, New York, and their overlap are highly liquid sessions
+    return isLondon || isNewYork || isOverlap;
 }
 
 function getActiveSessionName() {

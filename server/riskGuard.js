@@ -6,7 +6,7 @@
 let dailyLossLimit = 50.0; // $50 Max Daily Loss
 let maxConsecutiveSL = 3;
 
-function checkRiskSafety(tradeStats, currentBalance, startOfDayBalance) {
+function checkRiskSafety(tradeStats, currentBalance, startOfDayBalance, dailyLossLimit = 50.0) {
     let isBlocked = false;
     let reason = null;
 

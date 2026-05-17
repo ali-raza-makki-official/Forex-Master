@@ -54,7 +54,7 @@ export function WebSocketProvider({ children }) {
             [msg.symbol]: { bid: msg.bid, ask: msg.ask, time: msg.time }
           }));
         } else if (msg.event === 'new_signal') {
-          setSignals(prev => [msg, ...prev].slice(0, 5)); // Keep last 5
+          setSignals(prev => [msg.signal, ...prev].slice(0, 5)); // Keep last 5 (Extract inner signal object)
         } else if (msg.event === 'heartbeat') {
           if (msg.positions) setPositions(msg.positions);
           if (msg.balance) setBalance(msg.balance);
@@ -93,7 +93,13 @@ export function WebSocketProvider({ children }) {
           if (msg.gapStats) setGapStats(msg.gapStats);
           if (msg.atr) setAtr(msg.atr);
           if (msg.historyLogs) setHistoryLogs(msg.historyLogs);
-          if (msg.systemSettings) setSystemSettings(msg.systemSettings);
+          if (msg.systemSettings) {
+            // Merge systemSettings instead of overwriting to prevent UI parameter wiping
+            setSystemSettings(prev => ({
+              ...prev,
+              ...msg.systemSettings
+            }));
+          }
           if (msg.newsStatus) setNewsStatus(msg.newsStatus);
           if (msg.dailyStats) setDailyStats(msg.dailyStats);
         } else if (msg.event === 'emergency_stop_confirmed') {
@@ -170,7 +176,7 @@ export function WebSocketProvider({ children }) {
 
   return (
     <WebSocketContext.Provider value={{ 
-        ws, prices, signals, status, positions, balance, equity, 
+        ws, socket: ws, prices, signals, status, positions, balance, equity, 
         hftAnalytics, tradeStats, gapStats, atr, historyLogs, systemSettings, newsStatus, dailyStats,
         lockStates, activePairs, setActivePairs, leaderPair, setLeaderPair, allSymbols, sendTradeCommand 
       }}>

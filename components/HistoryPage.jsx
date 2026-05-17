@@ -3,7 +3,7 @@ import { useWebSocket } from '@/components/WebSocketProvider';
 import { useState } from 'react';
 
 export default function HistoryPage() {
-  const { historyLogs, tradeStats, dailyStats } = useWebSocket();
+  const { historyLogs, tradeStats, dailyStats, signals } = useWebSocket();
   const [activeCategory, setActiveCategory] = useState('trades');
   const [selectedPair, setSelectedPair] = useState('ALL');
 
@@ -181,14 +181,51 @@ export default function HistoryPage() {
          )}
 
         {activeCategory === 'signals' && (
-           <div className="p-20 text-center">
-              <div className="w-16 h-16 bg-accent-gold/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-accent-gold/20">
-                 <span className="text-2xl">📡</span>
-              </div>
-              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">Signal Archive (HFT Scan)</h3>
-              <p className="text-[10px] text-text-secondary uppercase font-bold max-w-sm mx-auto">Historical lead-lag divergence signals that did not meet execution filters are logged here for neural retraining.</p>
-              <div className="mt-8 text-[9px] font-black text-white/10 uppercase tracking-[0.4em]">Listening for Data...</div>
-           </div>
+           <>
+              {(!signals || signals.length === 0) ? (
+                  <div className="p-20 text-center">
+                     <div className="w-16 h-16 bg-accent-gold/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-accent-gold/20">
+                        <span className="text-2xl">📡</span>
+                     </div>
+                     <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">Signal Archive (HFT Scan)</h3>
+                     <p className="text-[10px] text-text-secondary uppercase font-bold max-w-sm mx-auto">Historical lead-lag divergence signals that did not meet execution filters are logged here for neural retraining.</p>
+                     <div className="mt-8 text-[9px] font-black text-white/10 uppercase tracking-[0.4em]">Listening for Data...</div>
+                  </div>
+              ) : (
+                  <table className="w-full text-left border-collapse">
+                  <thead>
+                      <tr className="bg-white/5 text-[10px] font-black text-text-secondary uppercase tracking-widest">
+                      <th className="p-4">Time (Local)</th>
+                      <th className="p-4">Type</th>
+                      <th className="p-4">Confidence</th>
+                      <th className="p-4">Gold Price</th>
+                      <th className="p-4">Take Profit</th>
+                      <th className="p-4">Stop Loss</th>
+                      <th className="p-4">Spread</th>
+                      <th className="p-4 text-right">Action Status</th>
+                      </tr>
+                  </thead>
+                  <tbody className="text-xs font-bold text-white/80">
+                      {signals.map((sig, idx) => (
+                      <tr key={sig.id || idx} className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
+                          <td className="p-4 text-white/40">{new Date(sig.timestamp).toLocaleTimeString()}</td>
+                          <td className={`p-4 ${sig.type === 'BUY' ? 'text-accent-green' : 'text-accent-red'}`}>{sig.type}</td>
+                          <td className="p-4 font-mono text-accent-gold">{sig.confidence}%</td>
+                          <td className="p-4 font-mono">${sig.goldPrice}</td>
+                          <td className="p-4 font-mono text-accent-green">${sig.tp}</td>
+                          <td className="p-4 font-mono text-accent-red">${sig.sl}</td>
+                          <td className="p-4 font-mono text-white/60">{sig.spread} pips</td>
+                          <td className="p-4 text-right">
+                             <span className={`px-2 py-1 rounded-md text-[9px] font-black ${sig.action === 'EXECUTE' ? 'bg-accent-green/20 text-accent-green' : 'bg-white/10 text-white/40'}`}>
+                                 {sig.action}
+                             </span>
+                          </td>
+                      </tr>
+                      ))}
+                  </tbody>
+                  </table>
+              )}
+           </>
         )}
 
         {activeCategory === 'system' && (

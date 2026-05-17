@@ -17,6 +17,8 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   const gold = livePrices['XAUUSD'];
   if (!gold) return;
 
+  const weights = dbWeights || (await db.getModelWeights().catch(() => []));
+
   // ── PRE-LAYER: Get System Settings ─────────────────────
   const settings = await db.getSystemSettings();
 
@@ -60,7 +62,13 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     const leader = pair.symbol;
     const history = priceHistory[leader];
     const current = livePrices[leader];
-    if (!history || !current) continue;
+    if (!history || !history.length || !current) continue;
+
+    // Ensure we have at least 90 seconds of history to calculate a valid 2-minute move
+    const oldest = history[0];
+    if (Date.now() - oldest.time < 90 * 1000) {
+      continue; // Skip: Insufficient history collected yet
+    }
 
     const twoMinAgo = history.find(h => h.time >= Date.now() - TWO_MIN);
     if (!twoMinAgo) continue;
@@ -75,7 +83,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   if (Object.keys(leaderMoves).length === 0) return;
 
   // ── LAYER 4: Signal scorer ──────────────────────────────
-  const score = scoreSignal(leaderMoves, dbWeights, settings.min_confidence || 85);
+  const score = scoreSignal(leaderMoves, weights, settings.min_confidence || 85);
   if (broadcastFn) broadcastFn({ event: 'score_update', score, display: getScoreDisplay(score.score) });
 
   if (score.action === 'IGNORE') return;
@@ -91,7 +99,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     type:                 score.direction,
     goldPrice:            gold.bid,
     expectedPips:         sltp.tpPips,
-    expectedDelayMinutes: getAvgLag(score.breakdown, dbWeights),
+    expectedDelayMinutes: getAvgLag(score.breakdown, weights),
     confidence:           (score.score / 120 * 100).toFixed(1),
     score:                score.score,
     grade:                score.grade,
@@ -124,7 +132,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   }
 
   // ── LAYER 5: Telegram alert ─────────────────────────────
-  await sendSignalAlert(signal, sltp, score, session);
+  await sendSignalAlert(signal, sltp, score, session, db);
 
   // ── Broadcast to frontend ───────────────────────────────
   if (broadcastFn) broadcastFn({ event: 'new_signal', signal });

@@ -60,6 +60,23 @@ async function migrate() {
     )
   `);
 
+  // 4. Create lock_events table
+  console.log('Ensuring lock_events table exists...');
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS lock_events (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      ticket      BIGINT NOT NULL,
+      symbol      VARCHAR(20),
+      profit_pips DECIMAL(8,1),
+      lock_pips   DECIMAL(8,1),
+      lock_price  DECIMAL(10,5),
+      zone        ENUM('ENTRY','EARLY','MID','STRONG','MONSTER'),
+      created_at  DATETIME DEFAULT NOW(),
+      INDEX idx_ticket (ticket),
+      INDEX idx_created (created_at)
+    )
+  `);
+
   console.log('Migration complete!');
   await conn.end();
 }

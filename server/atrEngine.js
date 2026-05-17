@@ -95,9 +95,12 @@ function getFallbackSLTP(signalType, currentPrice) {
   const SL_DIST = FIXED_SL_PIPS / 10;
   const TP_DIST = FIXED_TP_PIPS / 10;
 
+  const rawSL = signalType === 'BUY' ? currentPrice - SL_DIST : currentPrice + SL_DIST;
+  const rawTP = signalType === 'BUY' ? currentPrice + TP_DIST : currentPrice - TP_DIST;
+
   return {
-    sl:         signalType === 'BUY' ? currentPrice - SL_DIST : currentPrice + SL_DIST,
-    tp:         signalType === 'BUY' ? currentPrice + TP_DIST : currentPrice - TP_DIST,
+    sl:         parseFloat(rawSL.toFixed(2)),
+    tp:         parseFloat(rawTP.toFixed(2)),
     slPips:     FIXED_SL_PIPS,
     tpPips:     FIXED_TP_PIPS,
     atr:        null,

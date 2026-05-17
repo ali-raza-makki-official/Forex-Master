@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, Antigravity AI"
 #property link      "https://google.com"
-#property version   "1.02"
+#property version   "1.03"
 #property description "High-frequency MQL5 Local Bridge for Arbitrage Engine"
 #property strict
 
@@ -36,7 +36,7 @@ uint GetLastError();
 ulong     m_socket = 0;
 bool      m_connected = false;
 datetime  m_last_ping = 0;
-uchar     m_rx_buffer[65536]; // Increased to 64KB for safety
+uchar     m_rx_buffer[65536]; // 64KB Buffer
 string    m_processed_ids[];  // Cache for duplicate prevention
 string    m_command_queue[];  // Queue for simultaneous signals
 string    m_handshake_key = "dGhlIHNhbXBsZSBub25jZQ==";
@@ -48,6 +48,8 @@ double m_last_bids[];
 double m_last_asks[];
 
 void SendAvailableSymbols();
+void ProcessCommand(string json);
+string ExtractJsonValue(string json, string key);
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -133,8 +135,8 @@ void OnTimer()
       // Receive and process any pending socket data
       ReceiveData();
       
-      // Process Command Queue (Sequential Execution to prevent Trade Context Busy)
-      if(ArraySize(m_command_queue) > 0)
+      // Drain entire Command Queue (Sequential low-latency execution)
+      while(ArraySize(m_command_queue) > 0)
       {
          string cmd = m_command_queue[0];
          ProcessCommand(cmd);
@@ -156,8 +158,8 @@ void OnTick()
    {
       ReceiveData();
       
-      // Process Command Queue instantly if a tick arrives
-      if(ArraySize(m_command_queue) > 0)
+      // Drain entire Command Queue instantly on tick arrival
+      while(ArraySize(m_command_queue) > 0)
       {
          string cmd = m_command_queue[0];
          ProcessCommand(cmd);
@@ -269,9 +271,8 @@ bool PerformHandshake()
                       "Sec-WebSocket-Version: 13\r\n\r\n";
                       
    uchar req_bytes[];
-   // Omit count to copy the entire string including the null-terminator (returns length + 1)
    int total_len = StringToCharArray(handshake, req_bytes); 
-   int send_len = total_len - 1; // Send exactly the string bytes, excluding the null-terminator
+   int send_len = total_len - 1; // Exclude null-terminator
    
    Print("[DEBUG] Sending Handshake of size ", send_len, " bytes...");
    int sent_bytes = send(m_socket, req_bytes, send_len, 0);
@@ -286,7 +287,7 @@ bool PerformHandshake()
       Print("[DEBUG] Sent ", sent_bytes, " bytes of Handshake successfully. Waiting for response...");
    }
    
-   // Wait for HTTP 101 Switching Protocols response (blocking call makes it 100% reliable)
+   // Wait for HTTP 101 response
    uchar rx_buf[1024];
    int bytes = recv(m_socket, rx_buf, 1024, 0);
    if(bytes > 0)
@@ -320,14 +321,13 @@ void SendWebSocketFrame(string message)
    uchar msg_bytes[];
    int len = StringToCharArray(message, msg_bytes, 0, -1) - 1;
    
-   // Calculate WebSocket Frame
    int frame_size = 0;
    uchar frame[]; 
-   ArrayResize(frame, len + 14); // Dynamic allocation (max header is 14 bytes)
+   ArrayResize(frame, len + 14); // Dynamic allocation
    
    frame[0] = 0x81; // FIN + Text frame
    
-   // Masking is mandatory for client-to-server frames - Generate random 32-bit masking key per RFC 6455
+   // Masking is mandatory for client-to-server frames per RFC 6455
    uchar mask[4];
    mask[0] = uchar(MathRand() % 256);
    mask[1] = uchar(MathRand() % 256);
@@ -370,7 +370,6 @@ void SendHeartbeat()
 {
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    
-   // Construct positions array in JSON format
    string positions_json = "[";
    int pos_count = PositionsTotal();
    int added = 0;
@@ -378,7 +377,6 @@ void SendHeartbeat()
    for(int i = 0; i < pos_count; i++)
    {
       string sym = PositionGetSymbol(i);
-      // Optional filter: only stream matching pair or stream all
       ulong ticket = PositionGetInteger(POSITION_TICKET);
       double vol = PositionGetDouble(POSITION_VOLUME);
       double op = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -410,6 +408,7 @@ void SendHeartbeat()
 
 //+------------------------------------------------------------------+
 //| Read incoming socket packets and decode websocket frames         |
+//| Supports packet coalescing to process multiple packets in stream  |
 //+------------------------------------------------------------------+
 void ReceiveData()
 {
@@ -425,7 +424,7 @@ void ReceiveData()
    else if(bytes < 0)
    {
       int err = WSAGetLastError();
-      if(err != 10035) // 10035 is WSAEWOULDBLOCK, which is normal for non-blocking sockets
+      if(err != 10035) // WSAEWOULDBLOCK
       {
          Print("[BRIDGE] 🔴 Socket read error: ", err, ". Disconnecting.");
          Disconnect();
@@ -433,40 +432,54 @@ void ReceiveData()
       return;
    }
    
-   // Simple WebSocket frame decoding
-   uchar opcode = m_rx_buffer[0] & 0x0F;
-   if(opcode == 8) // Connection close frame
+   // Loop to parse all coalesced/merged WebSocket frames in TCP buffer
+   int offset = 0;
+   while(offset < bytes)
    {
-      Disconnect();
-      return;
-   }
-   
-   if(opcode == 9) // Ping frame
-   {
-      // Respond with Pong (opcode 10)
-      uchar pong[2] = {0x8A, 0x00};
-      send(m_socket, pong, 2, 0);
-      return;
-   }
-   
-   if(opcode == 1) // Text frame
-   {
-      ulong len = m_rx_buffer[1] & 0x7F;
-      int payload_offset = 2;
+      if(offset + 2 > bytes) break; // Incomplete frame header
       
-      if(len == 126)
+      uchar opcode = m_rx_buffer[offset] & 0x0F;
+      if(opcode == 8) // Close
       {
-         len = (m_rx_buffer[2] << 8) | m_rx_buffer[3];
-         payload_offset = 4;
+         Disconnect();
+         return;
+      }
+      if(opcode == 9) // Ping
+      {
+         uchar pong[2] = {0x8A, 0x00};
+         send(m_socket, pong, 2, 0);
+         offset += 2;
+         continue;
       }
       
-      // Node server doesn't mask server-to-client packets, decode straight
-      string json_str = CharArrayToString(m_rx_buffer, payload_offset, int(len));
-      
-      // Add to queue instead of processing immediately (Order Queue Implementation)
-      int qSize = ArraySize(m_command_queue);
-      ArrayResize(m_command_queue, qSize + 1);
-      m_command_queue[qSize] = json_str;
+      if(opcode == 1) // Text frame
+      {
+         ulong len = m_rx_buffer[offset + 1] & 0x7F;
+         int payload_offset = 2;
+         
+         if(len == 126)
+         {
+            if(offset + 4 > bytes) break; // Incomplete header
+            len = (m_rx_buffer[offset + 2] << 8) | m_rx_buffer[offset + 3];
+            payload_offset = 4;
+         }
+         
+         if(offset + payload_offset + int(len) > bytes) break; // Incomplete payload
+         
+         string json_str = CharArrayToString(m_rx_buffer, offset + payload_offset, int(len));
+         
+         // Queue command
+         int qSize = ArraySize(m_command_queue);
+         ArrayResize(m_command_queue, qSize + 1);
+         m_command_queue[qSize] = json_str;
+         
+         offset += payload_offset + int(len);
+      }
+      else
+      {
+         // Skip unknown opcodes
+         offset++;
+      }
    }
 }
 
@@ -475,17 +488,14 @@ void ReceiveData()
 //+------------------------------------------------------------------+
 void ProcessCommand(string json)
 {
-   // Very basic JSON parser to process commands cleanly
    if(StringFind(json, "\"action\":\"trade\"") >= 0)
    {
-      string reqId = ExtractJsonString(json, "\"id\"");
-      string symbol = ExtractJsonString(json, "\"symbol\"");
-      string type = ExtractJsonString(json, "\"type\"");
-      double volume = StringToDouble(ExtractJsonString(json, "\"volume\""));
-      double sl_points = StringToDouble(ExtractJsonString(json, "\"sl\""));
-      double tp_points = StringToDouble(ExtractJsonString(json, "\"tp\""));
-      
-      string reqId = ExtractJsonString(json, "\"id\"");
+      string reqId = ExtractJsonValue(json, "\"id\"");
+      string symbol = ExtractJsonValue(json, "\"symbol\"");
+      string type = ExtractJsonValue(json, "\"type\"");
+      double volume = StringToDouble(ExtractJsonValue(json, "\"volume\""));
+      double sl_points = StringToDouble(ExtractJsonValue(json, "\"sl\""));
+      double tp_points = StringToDouble(ExtractJsonValue(json, "\"tp\""));
       
       // Duplicate Order Prevention Check
       bool already_processed = false;
@@ -496,15 +506,15 @@ void ProcessCommand(string json)
          Print("[BRIDGE] ⚠️ Duplicate Trade ID Ignored: ", reqId);
          return;
       }
+      
       // Add to cache
       int cacheSize = ArraySize(m_processed_ids);
       ArrayResize(m_processed_ids, cacheSize + 1);
       m_processed_ids[cacheSize] = reqId;
-      if(ArraySize(m_processed_ids) > 100) ArrayRemove(m_processed_ids, 0, 1); // Keep last 100
+      if(ArraySize(m_processed_ids) > 100) ArrayRemove(m_processed_ids, 0, 1);
       
       Print("[BRIDGE] 📥 Trade Command Received: ", type, " ", volume, " Lots of ", symbol);
       
-      // Execute the order inside MT5
       MqlTradeRequest request;
       MqlTradeResult result;
       ZeroMemory(request);
@@ -527,7 +537,6 @@ void ProcessCommand(string json)
       else if((filling & SYMBOL_FILLING_IOC) != 0) request.type_filling = ORDER_FILLING_IOC;
       else request.type_filling = ORDER_FILLING_RETURN;
       
-      // SL/TP direct absolute price assignment from Arbitrage Server
       if(sl_points > 0)
       {
          request.sl = NormalizeDouble(sl_points, digits);
@@ -539,7 +548,6 @@ void ProcessCommand(string json)
       
       bool success = OrderSend(request, result);
       
-      // Reply back to Node.js server
       string reply = "";
       if(success && (result.retcode == TRADE_RETCODE_DONE || result.retcode == TRADE_RETCODE_PLACED))
       {
@@ -557,13 +565,12 @@ void ProcessCommand(string json)
    }
    else if(StringFind(json, "\"action\":\"close\"") >= 0)
    {
-      string reqId = ExtractJsonString(json, "\"id\"");
-      ulong ticket = StringToInteger(ExtractJsonString(json, "\"ticket\""));
-      double volume = StringToDouble(ExtractJsonString(json, "\"volume\""));
+      string reqId = ExtractJsonValue(json, "\"id\"");
+      ulong ticket = StringToInteger(ExtractJsonValue(json, "\"ticket\""));
+      double volume = StringToDouble(ExtractJsonValue(json, "\"volume\""));
       
       Print("[BRIDGE] 📥 Close Position Command Received: Ticket ", ticket, ", Volume: ", volume);
       
-      // Execute position closure in MT5
       MqlTradeRequest request;
       MqlTradeResult result;
       ZeroMemory(request);
@@ -585,10 +592,9 @@ void ProcessCommand(string json)
          request.type = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
          request.price = (type == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
          request.price = NormalizeDouble(request.price, digits);
-         request.deviation = 10;
+         request.deviation = MaxSlippage; // Fixed: Use dynamic MaxSlippage instead of hardcoded 10
          request.magic = 123456;
          
-         // Dynamic Filling Mode Resolution
          uint filling = (uint)SymbolInfoInteger(symbol, SYMBOL_FILLING_MODE);
          if((filling & SYMBOL_FILLING_FOK) != 0) request.type_filling = ORDER_FILLING_FOK;
          else if((filling & SYMBOL_FILLING_IOC) != 0) request.type_filling = ORDER_FILLING_IOC;
@@ -622,9 +628,8 @@ void ProcessCommand(string json)
    }
    else if(StringFind(json, "\"action\":\"modify_sl\"") >= 0)
    {
-      string reqId = ExtractJsonString(json, "\"id\"");
-      ulong ticket = StringToInteger(ExtractJsonString(json, "\"ticket\""));
-      double newSL = StringToDouble(ExtractJsonString(json, "\"sl\""));
+      ulong ticket = StringToInteger(ExtractJsonValue(json, "\"ticket\""));
+      double newSL = StringToDouble(ExtractJsonValue(json, "\"sl\""));
       if(PositionSelectByTicket(ticket)) {
          MqlTradeRequest req; MqlTradeResult res;
          ZeroMemory(req); ZeroMemory(res);
@@ -639,7 +644,7 @@ void ProcessCommand(string json)
    }
    else if(StringFind(json, "\"action\":\"set_symbols\"") >= 0)
    {
-      string symbols_str = ExtractJsonString(json, "\"symbols\"");
+      string symbols_str = ExtractJsonValue(json, "\"symbols\"");
       m_symbols_count = StringSplit(symbols_str, ',', m_symbols_to_track);
       
       ArrayResize(m_last_bids, m_symbols_count);
@@ -649,7 +654,6 @@ void ProcessCommand(string json)
       
       Print("[BRIDGE] 📥 Multi-symbol tracking initialized for ", m_symbols_count, " symbols: ", symbols_str);
       
-      // Ensure all symbols are added to the Market Watch, automatically healing suffixes and spacing
       for(int i = 0; i < m_symbols_count; i++)
       {
          StringTrimLeft(m_symbols_to_track[i]);
@@ -657,14 +661,12 @@ void ProcessCommand(string json)
          
          string sym = m_symbols_to_track[i];
          
-         // 1. Try direct match
          if(SymbolSelect(sym, true))
          {
             Print("[BRIDGE] Symbol verified and selected: ", sym);
             continue;
          }
          
-         // 2. Try with ".m" suffix (Exness Mini/Standard accounts)
          string sym_suffix = sym + ".m";
          if(SymbolSelect(sym_suffix, true))
          {
@@ -673,7 +675,6 @@ void ProcessCommand(string json)
             continue;
          }
          
-         // 3. Try removing spaces (e.g. "US OIL" -> "USOIL")
          string sym_nospace = sym;
          StringReplace(sym_nospace, " ", "");
          if(SymbolSelect(sym_nospace, true))
@@ -683,7 +684,6 @@ void ProcessCommand(string json)
             continue;
          }
          
-         // 4. Try removing spaces and adding ".m" suffix (e.g. "US OIL" -> "USOIL.m")
          string sym_nospace_suffix = sym_nospace + ".m";
          if(SymbolSelect(sym_nospace_suffix, true))
          {
@@ -702,9 +702,10 @@ void ProcessCommand(string json)
 }
 
 //+------------------------------------------------------------------+
-//| Simple JSON helper to extract string values                       |
+//| Robust JSON helper to extract string & numeric values             |
+//| Parses fields cleanly whether enclosed in quotes or raw numbers   |
 //+------------------------------------------------------------------+
-string ExtractJsonString(string json, string key)
+string ExtractJsonValue(string json, string key)
 {
    int idx = StringFind(json, key);
    if(idx < 0) return "";
@@ -717,8 +718,14 @@ string ExtractJsonString(string json, string key)
    }
    
    int end_idx = val_idx;
-   while(end_idx < StringLen(json) && StringSubstr(json, end_idx, 1) != "\"")
+   // Scan until we hit a delimiter (quote, comma, or closing curly brace)
+   while(end_idx < StringLen(json))
    {
+      string char_at = StringSubstr(json, end_idx, 1);
+      if(char_at == "\"" || char_at == "," || char_at == "}")
+      {
+         break;
+      }
       end_idx++;
    }
    
@@ -741,9 +748,8 @@ string DoubleToJSON(double val, int digits)
 //+------------------------------------------------------------------+
 void SendAvailableSymbols()
 {
-   int total = SymbolsTotal(false); // Visible in Market Watch
+   int total = SymbolsTotal(false);
    
-   // If Market Watch has very few symbols, use all terminal symbols
    if(total < 5)
    {
       total = SymbolsTotal(true);

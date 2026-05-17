@@ -1,11 +1,14 @@
 const cron = require('node-cron');
 const { getDB } = require('./db');
 
-function startSelfTrainer(broadcastFn) {
-  // Run hourly
-  cron.schedule('0 * * * *', async () => {
-    console.log('[TRAINER] Starting hourly self-training...');
-    
+/**
+ * Self Trainer Engine
+ * Trains price confirm parameters and lagging offsets based on past signals performance.
+ */
+
+async function runTraining(broadcastFn) {
+  try {
+    console.log('[TRAINER] Initiating self-training optimization cycle...');
     const conn = await getDB();
     
     // Get all verified signals from last 7 days
@@ -18,7 +21,7 @@ function startSelfTrainer(broadcastFn) {
     `);
     
     if (signals.length === 0) {
-      console.log('[TRAINER] No verified signals found in the last 7 days.');
+      console.log('[TRAINER] No verified signals found in the last 7 days. Utilizing seed weights.');
       return;
     }
     
@@ -47,7 +50,7 @@ function startSelfTrainer(broadcastFn) {
           updated_at=NOW()
       `, [pair, avgLag, avgImpact, accuracy, data.length]);
       
-      console.log(`[TRAINER] Updated ${pair}: Accuracy=${accuracy.toFixed(1)}% Lag=${avgLag.toFixed(1)}min Samples=${data.length}`);
+      console.log(`[TRAINER] Refined parameters for ${pair}: Accuracy=${accuracy.toFixed(1)}% Lag=${avgLag.toFixed(1)}m Samples=${data.length}`);
     }
     
     // Broadcast updates to frontend if callback exists
@@ -64,9 +67,24 @@ function startSelfTrainer(broadcastFn) {
         }))
       });
     }
+    console.log('[TRAINER] Optimization cycle completed successfully.');
+  } catch(e) {
+    console.error('[TRAINER] Training loop exception:', e.message);
+  }
+}
+
+function startSelfTrainer(broadcastFn) {
+  // 1. Run immediately on server start to sync database
+  setTimeout(() => {
+    runTraining(broadcastFn);
+  }, 3000); // 3 seconds grace period to allow db pool to stabilize
+
+  // 2. Schedule hourly execution
+  cron.schedule('0 * * * *', async () => {
+    await runTraining(broadcastFn);
   });
   
-  console.log('[TRAINER] Self-training service initialized (Hourly Cron)');
+  console.log('[TRAINER] Self-training service initialized (Immediate + Hourly Cron)');
 }
 
 module.exports = { startSelfTrainer };

@@ -4,7 +4,7 @@ import { useWebSocket } from '@/components/WebSocketProvider';
 
 export default function SignalCard() {
   const { signals } = useWebSocket();
-  const latestSignal = signals?.[signals.length - 1];
+  const latestSignal = signals?.[0];
 
   if (!latestSignal) {
     return (

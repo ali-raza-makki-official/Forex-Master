@@ -196,6 +196,7 @@ const priceHistory = {}; // Last 60 seconds of prices per symbol
 let latestPositions = [];
 let latestBalance = 0;
 let autoScalpEnabled = true;
+let startOfDayBalance = 0;
 let cachedSymbols = null; // Store for new frontend connections
 
 // Run lock checker every 5 seconds
@@ -203,10 +204,11 @@ setInterval(async () => {
   if (!getActiveMT5() || !latestPositions.length) return;
   
   await checkAndUpdateLocks(
-    latestPositions,  // From latest heartbeat
-    livePrices,       // Live bid/ask from MT5
+    latestPositions,       // From latest heartbeat
+    livePrices,            // Live bid/ask from MT5
     getActiveMT5(),        // WebSocket to MT5
-    db                // MySQL connection
+    db,                    // MySQL connection
+    broadcastToFrontend    // Broadcast function to notify frontend
   );
 }, 5000);
 
@@ -334,7 +336,9 @@ async function handleMT5Message(msg, ws) {
     if (!priceHistory[msg.symbol]) priceHistory[msg.symbol] = [];
     priceHistory[msg.symbol].push({ bid: msg.bid, ask: msg.ask, time: Date.now() });
     
-    if (priceHistory[msg.symbol].length > 120) {
+    // Dynamic Time-Based Pruning: Keep last 2.5 minutes (150 seconds) of ticks
+    const cutoff = Date.now() - (150 * 1000);
+    while (priceHistory[msg.symbol].length > 0 && priceHistory[msg.symbol][0].time < cutoff) {
       priceHistory[msg.symbol].shift();
     }
     
@@ -347,6 +351,42 @@ async function handleMT5Message(msg, ws) {
       
       if (signal && autoScalpEnabled && signal.action === 'EXECUTE') {
         const settings = await db.getSystemSettings();
+        
+        // ── RISK SHIELD: Dynamic Loss Limit & Daily Drawdown Block ──
+        const tradeStats = await db.getTradeStats();
+        const dailyLossLimit = settings.daily_loss_limit || 50.0;
+        const startBalance = startOfDayBalance || latestBalance;
+        
+        const risk = checkRiskSafety(tradeStats, latestBalance, startBalance, dailyLossLimit);
+        
+        if (risk.isBlocked) {
+          console.log(`[RISK SHIELD] 🛡️ Trade Execution Blocked: ${risk.reason}`);
+          const { sendRiskAlert } = require('./telegramAlert');
+          await sendRiskAlert(risk.reason, `Balance: $${latestBalance} | StartOfDay: $${startBalance} | Limit: $${dailyLossLimit}`, db);
+          return;
+        }
+
+        // ── POSITION GUARD: Duplicate & Reversal Conflict Shield ──
+        const symbol = 'XAUUSD';
+        const type = signal.type;
+        
+        // Check for duplicate trade (same direction)
+        const duplicate = latestPositions.find(p => p.symbol === symbol && p.type === type);
+        if (duplicate) {
+          console.log(`[POSITION GUARD] 🛡️ Duplicate ${type} trade blocked for ${symbol}. Position #${duplicate.id || duplicate.ticket} already active.`);
+          return;
+        }
+
+        // Check for opposite trade (reversal scenario)
+        const opposite = latestPositions.find(p => p.symbol === symbol && p.type !== type);
+        if (opposite) {
+          console.log(`[POSITION GUARD] 🔄 Opposite trade detected! Reversing position. Closing active ${opposite.type} #${opposite.id || opposite.ticket} before opening new ${type}.`);
+          closePosition(opposite.id || opposite.ticket);
+          
+          // Wait 200ms for MT5 to process the closure before sending the new trade request
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
         const lotSize = settings.lot_size || 0.01;
         
         console.log(`[AUTO-SCALP] Executing ${signal.type} | Volume: ${lotSize} | Score: ${signal.score}`);
@@ -370,6 +410,10 @@ async function handleMT5Message(msg, ws) {
 
     latestPositions = newPositions;
     latestBalance   = msg.balance;
+    if (startOfDayBalance === 0 && msg.balance) {
+      startOfDayBalance = msg.balance;
+      console.log(`[SERVER] Initial start-of-day balance set to: $${startOfDayBalance}`);
+    }
     broadcastToFrontend({ event: 'heartbeat', ...msg });
   }
   else if (msg.event === 'trade_response') {
@@ -434,6 +478,7 @@ console.log(`[SERVER] Frontend WebSocket listening on ws://localhost:${FRONTEND_
 
 initTelegram();
 startSpreadBroadcast(livePrices, broadcastToFrontend);
+startSelfTrainer(broadcastToFrontend);
 
 // Health Check HTTP Endpoint
 const HEALTH_PORT = process.env.HEALTH_PORT || 3003;
