@@ -1,5 +1,6 @@
 const cron = require('node-cron');
-const fetch = require('node-fetch');
+// Use platform's native global fetch
+
 
 /**
  * News Filter Engine

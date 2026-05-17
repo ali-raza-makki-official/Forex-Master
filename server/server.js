@@ -249,7 +249,8 @@ setInterval(async () => {
     const tradeStats = await db.getTradeStats();
     const gapStats = await db.getGapAnalytics();
     const goldATR = await calculateATR('XAUUSD', 14);
-    const riskStatus = checkRiskSafety(tradeStats, latestBalance, latestBalance + 10);
+    const startBalance = startOfDayBalance || latestBalance;
+    const riskStatus = checkRiskSafety(tradeStats, latestBalance, startBalance);
     const sessionName = getActiveSessionName();
     const historyLogs = await getHistoryLogs();
     const systemSettings = await getSystemSettings();
@@ -291,9 +292,21 @@ setInterval(async () => {
 setInterval(async () => {
   try {
     const pool = await db.getDB();
-    await pool.execute('DELETE FROM price_data WHERE created_at < NOW() - INTERVAL 7 DAY');
+    // Prune price_data in chunks of 5000 rows to prevent table locking
+    let rowsDeleted = 0;
+    do {
+      const [result] = await pool.execute(
+        'DELETE FROM price_data WHERE created_at < NOW() - INTERVAL 7 DAY LIMIT 5000'
+      );
+      rowsDeleted = result.affectedRows;
+      if (rowsDeleted > 0) {
+        // Yield execution to allow concurrent live price inserts
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    } while (rowsDeleted > 0);
+
     await pool.execute('DELETE FROM trade_log WHERE created_at < NOW() - INTERVAL 90 DAY');
-    console.log('[SERVER] DB Pruning completed.');
+    console.log('[SERVER] DB Pruning completed in non-blocking batches.');
   } catch (err) {
     console.error('[SERVER] DB Pruning error:', err.message);
   }
@@ -311,8 +324,19 @@ function getActiveMT5() {
   return null;
 }
 
-wss.on('connection', (ws) => {
-  console.log('[SERVER] MT5 Bridge Connected!');
+wss.on('connection', (ws, req) => {
+  // ── SECURITY REINFORCEMENT: Token-Based Authentication ──
+  const expectedToken = process.env.BRIDGE_AUTH_TOKEN || 'ForexMasterSecureToken2026';
+  const urlParams = new URLSearchParams(req.url.split('?')[1]);
+  const token = req.headers['authorization']?.split(' ')[1] || urlParams.get('token');
+  
+  if (token !== expectedToken) {
+    console.warn(`[SERVER] 🛡️ Unauthorized MT5 Bridge connection attempt blocked from ${req.socket.remoteAddress}`);
+    ws.close(4003, 'Unauthorized Connection');
+    return;
+  }
+
+  console.log('[SERVER] MT5 Bridge Connected and Authenticated!');
   const clientId = mt5ClientCounter === 0 ? 'primary' : 'backup';
   mt5ClientCounter++;
   mt5Clients.set(clientId, ws);
@@ -445,7 +469,7 @@ async function handleMT5Message(msg, ws) {
       for (const oldPos of latestPositions) {
         if (!oldPos || (!oldPos.id && !oldPos.ticket)) continue;
         const targetId = oldPos.id || oldPos.ticket;
-        const exists = newPositions.find(p => p && (p.id === targetId || p.ticket === targetId));
+        const exists = newPositions.find(p => p && String(p.id || p.ticket) === String(targetId));
         if (!exists) {
           console.log(`[SERVER] Position #${targetId} disappeared from heartbeat. Marking as closed.`);
           handleExternalClosure(oldPos).catch(e => console.error("Closure Handle Error:", e));

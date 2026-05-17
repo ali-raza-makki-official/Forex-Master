@@ -14,6 +14,7 @@ input string   ServerHost     = "127.0.0.1"; // Node Server IP
 input int      ServerPort     = 3001;        // Node Server Port
 input int      PingIntervalS  = 1;           // Heartbeat Interval (Seconds)
 input int      MaxSlippage    = 3;           // Max Slippage (Points)
+input string   AuthToken      = "ForexMasterSecureToken2026"; // Secret Authentication Token
 
 //--- WinAPI Declarations for Low-latency Winsock Sockets (Allow DLL Imports must be checked!)
 #import "ws2_32.dll"
@@ -267,6 +268,7 @@ bool PerformHandshake()
                       "Host: " + ServerHost + ":" + IntegerToString(ServerPort) + "\r\n" +
                       "Upgrade: websocket\r\n" +
                       "Connection: Upgrade\r\n" +
+                      "Authorization: Bearer " + AuthToken + "\r\n" +
                       "Sec-WebSocket-Key: " + m_handshake_key + "\r\n" +
                       "Sec-WebSocket-Version: 13\r\n\r\n";
                       
