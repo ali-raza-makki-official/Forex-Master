@@ -67,7 +67,7 @@ export default function NewsCountdown({ newsData }) {
         <span className="text-[10px] font-bold uppercase tracking-tighter">
           {isActive ? 'NEWS ACTIVE' : 'LIVE SOON'}
         </span>
-        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'bg-[#f5a623] shadow-[0_0_8px_rgba(245,166,35,0.8)]'} animate-pulse`}></div>
+        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-red-500' : 'bg-[#f5a623]'} animate-pulse`}></div>
       </div>
     </div>
   );

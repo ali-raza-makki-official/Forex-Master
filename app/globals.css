@@ -3,47 +3,45 @@
 @tailwind utilities;
 
 :root {
-  /* DARK THEME (Exness Style) */
-  --bg-primary: #0a0e1a;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
-  --accent-green: #00d4a8;
-  --accent-red: #ff4757;
-  --accent-gold: #f5a623;
-  --accent-blue: #3b82f6;
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --border: rgba(255, 255, 255, 0.08);
-  --glass: rgba(17, 24, 39, 0.7);
+  /* INSTITUTIONAL MODERN LIGHT THEME */
+  --bg-primary: #f8f9fe;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eceef2;
+  --accent-green: #006c48;
+  --accent-red: #ba1437;
+  --accent-gold: #775a00;
+  --accent-blue: #00734d;
+  --text-primary: #191c1f;
+  --text-secondary: #4f4633;
+  --border: #d8dade;
+  --glass: rgba(255, 255, 255, 0.85);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    /* LIGHT THEME (Exness Style) */
-    --bg-primary: #f3f4f6;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #e5e7eb;
-    --accent-green: #00b894;
-    --accent-red: #d63031;
-    --accent-gold: #e67e22;
-    --accent-blue: #0984e3;
-    --text-primary: #111827;
-    --text-secondary: #4b5563;
-    --border: rgba(0, 0, 0, 0.08);
-    --glass: rgba(255, 255, 255, 0.7);
-  }
+.dark {
+  /* INSTITUTIONAL MODERN DARK THEME */
+  --bg-primary: #0b0e11;
+  --bg-secondary: #161a1e;
+  --bg-tertiary: #212630;
+  --accent-green: #2ebd85;
+  --accent-red: #f6465d;
+  --accent-gold: #f0b90b;
+  --accent-blue: #2f81f7;
+  --text-primary: #eaecef;
+  --text-secondary: #848e9c;
+  --border: #2b3139;
+  --glass: rgba(22, 26, 30, 0.8);
 }
 
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 @layer components {
   .ex-card {
-    @apply bg-bg-secondary border border-border rounded-lg shadow-sm transition-all duration-200;
+    @apply bg-bg-secondary border border-border rounded-lg transition-all duration-200;
   }
   
   .ex-glass {

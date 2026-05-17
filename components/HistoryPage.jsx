@@ -53,7 +53,7 @@ export default function HistoryPage() {
                  onClick={() => setActiveCategory(cat.id)}
                  className={`px-6 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center gap-2 ${
                     activeCategory === cat.id 
-                    ? 'bg-accent-gold text-black shadow-[0_0_20px_rgba(245,166,35,0.3)]' 
+                    ? 'bg-accent-gold text-black ' 
                     : 'text-white/40 hover:text-white/80'
                  }`}
               >

@@ -56,7 +56,7 @@ export default function AutoScalpSettings() {
       <DailyStatsGrid stats={dailyStats} />
 
       {/* 2. AUTO-SCALP TOGGLE */}
-      <div className="p-5 bg-bg-tertiary/40 border border-white/5 rounded-2xl space-y-4 shadow-inner">
+      <div className="p-5 bg-bg-tertiary/40 border border-white/5 rounded-2xl space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
              <span className="text-[10px] text-accent-gold font-black uppercase tracking-widest">Automation</span>

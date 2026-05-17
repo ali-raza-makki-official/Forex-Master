@@ -17,7 +17,7 @@ export default function DailyStatsGrid({ stats }) {
   return (
     <div className="w-full space-y-3">
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 shadow-inner group hover:border-accent-gold/20 transition-colors">
+        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 group hover:border-accent-gold/20 transition-colors">
           <span className="text-[7px] text-accent-gold font-black uppercase tracking-[0.2em] opacity-60 group-hover:opacity-100 transition-opacity">Trades Today</span>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-black text-white">{dailyStats?.tradesToday || 0}</span>
@@ -28,19 +28,19 @@ export default function DailyStatsGrid({ stats }) {
           )}
         </div>
 
-        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 shadow-inner group hover:border-accent-green/20 transition-colors">
+        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 group hover:border-accent-green/20 transition-colors">
           <span className="text-[7px] text-accent-green font-black uppercase tracking-[0.2em] opacity-60 group-hover:opacity-100 transition-opacity">Win Rate</span>
           <span className="text-lg font-black text-white">{dailyStats?.winRate || 0}%</span>
         </div>
 
-        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 shadow-inner group hover:border-accent-blue/20 transition-colors">
+        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 group hover:border-accent-blue/20 transition-colors">
           <span className="text-[7px] text-accent-blue font-black uppercase tracking-[0.2em] opacity-60 group-hover:opacity-100 transition-opacity">Daily P&L</span>
           <span className={`text-lg font-black ${dailyStats?.dailyPL >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
             {dailyStats?.dailyPL >= 0 ? '+' : ''}${Math.abs(dailyStats?.dailyPL || 0).toFixed(2)}
           </span>
         </div>
 
-        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 shadow-inner group hover:border-accent-red/20 transition-colors">
+        <div className="bg-bg-tertiary/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 group hover:border-accent-red/20 transition-colors">
           <span className="text-[7px] text-accent-red font-black uppercase tracking-[0.2em] opacity-60 group-hover:opacity-100 transition-opacity">Max Drawdown</span>
           <span className="text-lg font-black text-white">${(dailyStats?.drawdown || 0).toFixed(2)}</span>
         </div>

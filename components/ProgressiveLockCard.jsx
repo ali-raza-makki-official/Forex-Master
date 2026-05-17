@@ -2,11 +2,11 @@
 import React from 'react';
 
 const ZONE_THEMES = {
-  'ENTRY':   { label: 'ENTRY ZONE',   color: 'text-blue-400',   bgColor: 'bg-blue-500/5 border-blue-500/10',   progressColor: 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]' },
-  'EARLY':   { label: 'EARLY ZONE',   color: 'text-yellow-500', bgColor: 'bg-yellow-500/5 border-yellow-500/10', progressColor: 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.3)]' },
-  'MID':     { label: 'MID ZONE',     color: 'text-orange-500',  bgColor: 'bg-orange-500/5 border-orange-500/10',   progressColor: 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.3)]' },
-  'STRONG':  { label: 'STRONG ZONE',  color: 'text-red-500',    bgColor: 'bg-red-500/5 border-red-500/10',       progressColor: 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.3)]' },
-  'MONSTER': { label: 'MONSTER ZONE', color: 'text-purple-500', bgColor: 'bg-purple-500/5 border-purple-500/10', progressColor: 'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.3)]' }
+  'ENTRY':   { label: 'ENTRY ZONE',   color: 'text-blue-400',   bgColor: 'bg-blue-500/5 border-blue-500/10',   progressColor: 'bg-blue-500' },
+  'EARLY':   { label: 'EARLY ZONE',   color: 'text-yellow-500', bgColor: 'bg-yellow-500/5 border-yellow-500/10', progressColor: 'bg-yellow-500' },
+  'MID':     { label: 'MID ZONE',     color: 'text-orange-500',  bgColor: 'bg-orange-500/5 border-orange-500/10',   progressColor: 'bg-orange-500' },
+  'STRONG':  { label: 'STRONG ZONE',  color: 'text-red-500',    bgColor: 'bg-red-500/5 border-red-500/10',       progressColor: 'bg-red-500' },
+  'MONSTER': { label: 'MONSTER ZONE', color: 'text-purple-500', bgColor: 'bg-purple-500/5 border-purple-500/10', progressColor: 'bg-purple-500' }
 };
 
 export default function ProgressiveLockCard({ position, lockState }) {
@@ -21,7 +21,7 @@ export default function ProgressiveLockCard({ position, lockState }) {
   const progressPercent = Math.min(100, Math.max(0, (profitPips / nextLockPips) * 100));
 
   return (
-    <div className={`p-4 rounded-2xl border ${theme.bgColor} transition-all duration-500 hover:scale-[1.01] hover:shadow-[0_4px_20px_rgba(0,0,0,0.2)]`}>
+    <div className={`p-4 rounded-2xl border ${theme.bgColor} transition-all duration-500 hover:scale-[1.01]`}>
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center gap-2">
            <span className={`text-[9px] font-black px-2 py-0.5 rounded bg-black/40 ${position.type === 'BUY' ? 'text-accent-green' : 'text-accent-red'}`}>

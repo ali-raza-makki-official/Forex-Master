@@ -33,10 +33,10 @@ export default function HFTIndicator() {
   
   if (realDiff !== null && avgDiff !== null) {
     if (realDiff > avgDiff * 1.5) {
-       indicatorColor = 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]';
+       indicatorColor = 'bg-green-500';
        indicatorLabel = 'BUY';
     } else if (realDiff < avgDiff * 0.5) {
-       indicatorColor = 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]';
+       indicatorColor = 'bg-red-500';
        indicatorLabel = 'SELL';
     } else {
        indicatorColor = 'bg-yellow-500';

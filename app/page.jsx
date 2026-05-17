@@ -1,5 +1,5 @@
 'use client'; // Main Dashboard Page
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWebSocket } from '@/components/WebSocketProvider';
 import LivePriceTicker from '@/components/LivePriceTicker';
 import SignalCard from '@/components/SignalCard';
@@ -12,9 +12,44 @@ import SettingsPage from '@/components/SettingsPage';
 import HFTIndicator from '@/components/HFTIndicator';
 
 export default function Dashboard() {
-  const { status, prices, positions, lockStates, balance } = useWebSocket();
+  const { status, prices, positions, lockStates, balance, socket, systemSettings, historyLogs } = useWebSocket();
   const [activeTab, setActiveTab] = useState('intelligence');
   const [isEngineOpen, setEngineOpen] = useState(false);
+  const [isAutoScalpPopupOpen, setAutoScalpPopupOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState('live');
+  
+  const isAutoScalpEnabled = !!systemSettings?.auto_scalp_enabled;
+
+  const handleHeaderAutoScalpToggle = () => {
+    const nextVal = !isAutoScalpEnabled;
+    if (socket && socket.readyState === 1) {
+      socket.send(JSON.stringify({
+        action: 'set_auto_scalp',
+        enabled: nextVal,
+        minConfidence: systemSettings?.min_confidence || 85
+      }));
+    }
+  };
+  
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') || 'dark';
+    }
+    return 'dark';
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.add('light');
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [theme]);
   
   const navItems = [
     { id: 'intelligence', label: 'Intelligence', icon: 'M13 10V3L4 14h7v7l9-11h-7z' }, // Bolt icon for Intel
@@ -27,25 +62,25 @@ export default function Dashboard() {
     <main className="flex flex-col h-screen bg-bg-primary text-text-primary selection:bg-accent-gold/30 overflow-hidden relative font-sans">
       
       {/* 1. TOP HEADER */}
-      <header className="flex justify-between items-center px-6 h-16 bg-bg-secondary border-b border-border z-30 shadow-xl shadow-black/20">
+      <header className="flex justify-between items-center px-6 h-16 bg-bg-secondary border-b border-border z-30 shadow-none">
         <div className="flex items-center gap-5">
            <div className="group relative">
               <div className="absolute -inset-1 bg-accent-gold rounded-xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
-              <div className="relative w-10 h-10 bg-gradient-to-br from-accent-gold to-yellow-600 rounded-xl flex items-center justify-center shadow-lg shadow-accent-gold/20 cursor-pointer hover:scale-105 active:scale-95 transition-all">
+              <div className="relative w-10 h-10 bg-gradient-to-br from-accent-gold to-yellow-600 rounded-xl flex items-center justify-center shadow-none cursor-pointer hover:scale-105 active:scale-95 transition-all">
                  <span className="text-black text-2xl font-black italic">X</span>
               </div>
            </div>
            
            <div className="flex flex-col">
-              <h1 className="text-sm font-black tracking-tighter leading-none text-white flex items-center gap-1.5">
+              <h1 className="text-sm font-black tracking-tighter leading-none text-text-primary flex items-center gap-1.5">
                 GOLD SCALPER 
                 <span className="text-[7px] bg-accent-gold/10 text-accent-gold px-1.5 py-0.5 rounded border border-accent-gold/20 font-black uppercase">PRO</span>
               </h1>
               <span className="text-[9px] text-accent-gold font-bold uppercase tracking-[0.25em] mt-1 opacity-70">Institutional Terminal</span>
            </div>
            
-           <div className="flex items-center gap-2 px-3 h-10 bg-white/5 rounded-xl border border-white/10">
-              <div className={`w-1.5 h-1.5 rounded-full ${status === 'Connected' ? 'bg-accent-green shadow-[0_0_8px_rgba(0,212,168,0.6)] animate-pulse' : 'bg-accent-red'}`}></div>
+           <div className="flex items-center gap-2 px-3 h-10 bg-bg-tertiary rounded-xl border border-border">
+              <div className={`w-1.5 h-1.5 rounded-full ${status === 'Connected' ? 'bg-accent-green shadow-none animate-pulse' : 'bg-accent-red'}`}></div>
               <span className="text-[8px] font-black tracking-widest text-text-secondary uppercase whitespace-nowrap">{status}</span>
            </div>
         </div>
@@ -53,22 +88,102 @@ export default function Dashboard() {
         <div className="flex items-center gap-4">
 
            {/* ADVANCED BALANCE CARD */}
-           <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 h-10 rounded-xl relative group overflow-hidden">
+           <div className="flex items-center gap-3 bg-bg-tertiary border border-border px-4 h-10 rounded-xl relative group overflow-hidden">
               <div className="flex flex-col relative z-10">
                  <span className="text-[6px] text-accent-gold font-black uppercase tracking-[0.2em] leading-none mb-1 opacity-80">Equity Balance</span>
                  <div className="flex items-center gap-1 leading-none">
-                    <span className="text-[10px] text-white/40 font-bold font-mono">$</span>
-                    <span className="text-sm font-black text-white tabular-nums tracking-tighter">
+                    <span className="text-[10px] text-text-secondary/60 font-bold font-mono">$</span>
+                    <span className="text-sm font-black text-text-primary tabular-nums tracking-tighter">
                        {balance?.toLocaleString(undefined, {minimumFractionDigits: 2}) || '0.00'}
                     </span>
                  </div>
               </div>
            </div>
 
-           {/* Execution Engine Toggle (Main Entry) */}
+            {/* Auto-Scalp Header Button (Quick Settings Dropdown) */}
+            <div className="relative">
+               <button
+                  onClick={() => setAutoScalpPopupOpen(!isAutoScalpPopupOpen)}
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer hover:bg-bg-secondary hover:border-border/80 transition-all active:scale-95 ${isAutoScalpPopupOpen || isAutoScalpEnabled ? 'bg-bg-secondary border-accent-gold/40 text-accent-gold' : 'bg-bg-tertiary border-border text-text-primary/80'}`}
+                  title="Auto-Scalp Quick Settings"
+               >
+                  <svg className={`w-5 h-5 ${isAutoScalpEnabled ? 'animate-pulse text-accent-gold' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 5h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2zM9 9h6v6H9V9z" />
+                  </svg>
+               </button>
+
+               {/* Quick Settings Dropdown Popup */}
+               {isAutoScalpPopupOpen && (
+                  <>
+                     <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setAutoScalpPopupOpen(false)}
+                     ></div>
+                     
+                     <div className="absolute right-0 mt-2.5 w-64 bg-bg-secondary border border-border rounded-xl p-5 z-50 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex flex-col">
+                           <span className="text-[7px] text-accent-gold font-black uppercase tracking-[0.25em] mb-1">Quick Console</span>
+                           <h4 className="text-xs font-black text-text-primary uppercase">Auto-Scalp Config</h4>
+                        </div>
+                        
+                        {/* 1. Toggle Switch */}
+                        <div className="flex items-center justify-between py-2.5 border-y border-border/50">
+                           <span className="text-[10px] font-black text-text-primary uppercase">Engine Active</span>
+                           <button 
+                              onClick={handleHeaderAutoScalpToggle}
+                              className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${isAutoScalpEnabled ? 'bg-accent-green' : 'bg-text-secondary/20'}`}
+                           >
+                              <div 
+                                 className="absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300"
+                                 style={{ left: isAutoScalpEnabled ? '18px' : '2px' }}
+                              ></div>
+                           </button>
+                        </div>
+                        
+                        {/* 2. Confidence Slider */}
+                        <div className="space-y-2">
+                           <div className="flex justify-between text-[9px] font-black uppercase text-text-secondary">
+                              <span>Min Confidence</span>
+                              <span className="text-accent-gold">{systemSettings?.min_confidence || 85}%</span>
+                           </div>
+                           <input 
+                              type="range" 
+                              min="50" 
+                              max="95" 
+                              value={systemSettings?.min_confidence || 85} 
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 if (socket && socket.readyState === 1) {
+                                    socket.send(JSON.stringify({ 
+                                       action: 'set_auto_scalp', 
+                                       enabled: isAutoScalpEnabled,
+                                       minConfidence: val
+                                    }));
+                                 }
+                              }}
+                              className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-accent-gold"
+                           />
+                        </div>
+                     </div>
+                  </>
+               )}
+            </div>
+
+            {/* Slider Console Toggle Button (styled like theme toggle) */}
+            <button 
+               onClick={() => setEngineOpen(!isEngineOpen)}
+               className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer hover:bg-bg-secondary hover:border-border/80 transition-all active:scale-95 ${isEngineOpen ? 'bg-bg-secondary border-accent-gold/40 text-accent-gold' : 'bg-bg-tertiary border-border text-text-primary/80'}`}
+               title="Toggle Trade Drawer Console"
+            >
+               <svg className={`w-5 h-5 transition-transform duration-300 ${isEngineOpen ? 'text-accent-gold rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M4 6h16M4 12h16M4 18h16" />
+               </svg>
+            </button>
+
+            {/* Execution Engine Toggle (Main Entry) */}
            <button 
-              onClick={() => setEngineOpen(!isEngineOpen)}
-              className={`flex items-center gap-2.5 px-5 h-10 rounded-xl border transition-all duration-500 group ${isEngineOpen ? 'bg-accent-gold text-black border-accent-gold shadow-[0_0_20px_rgba(245,166,35,0.3)]' : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'}`}
+              onClick={() => setEngineOpen(!isEngineOpen)} style={{ display: 'none' }}
+              className={`flex items-center gap-2.5 px-5 h-10 rounded-xl border transition-all duration-500 group ${isEngineOpen ? 'bg-accent-gold text-black border-accent-gold shadow-none' : 'bg-bg-tertiary border-border text-text-primary/80 hover:bg-bg-secondary hover:border-border/60'}`}
            >
               <div className="flex flex-col items-start">
                  <span className={`text-[8px] font-black uppercase tracking-widest leading-none mb-0.5 ${isEngineOpen ? 'text-black' : 'text-accent-gold'}`}>Auto-Scalp</span>
@@ -77,10 +192,27 @@ export default function Dashboard() {
               <svg className={`w-4 h-4 transition-transform duration-500 ${isEngineOpen ? 'rotate-180' : 'group-hover:translate-y-0.5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
            </button>
 
+           {/* Theme Toggle Button */}
+           <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="w-10 h-10 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center cursor-pointer hover:bg-bg-secondary hover:border-border/80 transition-all active:scale-95 text-text-primary/80"
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+           >
+              {theme === 'dark' ? (
+                 <svg className="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                 </svg>
+              ) : (
+                 <svg className="w-5 h-5 text-accent-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                 </svg>
+              )}
+           </button>
+
            <div className="relative group">
               <div className="absolute inset-0 bg-accent-gold rounded-xl blur-[2px] opacity-0 group-hover:opacity-20 transition-opacity"></div>
-              <div className="relative w-10 h-10 rounded-xl bg-bg-tertiary border border-white/10 flex items-center justify-center cursor-pointer group-hover:border-accent-gold/40 transition-all active:scale-95">
-                 <span className="text-[10px] font-black text-accent-gold uppercase group-hover:text-white transition-colors">AR</span>
+              <div className="relative w-10 h-10 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center cursor-pointer group-hover:border-accent-gold/40 transition-all active:scale-95">
+                 <span className="text-[10px] font-black text-accent-gold uppercase group-hover:text-text-primary transition-colors">AR</span>
               </div>
               <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-accent-green rounded-full border-2 border-bg-secondary"></div>
            </div>
@@ -96,14 +228,14 @@ export default function Dashboard() {
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
                   title={item.label}
-                  className={`relative flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-all duration-300 group ${activeTab === item.id ? 'bg-accent-gold/10 text-accent-gold shadow-[inset_0_0_12px_rgba(245,166,35,0.05)]' : 'text-white/20 hover:text-white/80 hover:bg-white/5'}`}
+                  className={`relative flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-all duration-300 group ${activeTab === item.id ? 'bg-accent-gold/10 text-accent-gold shadow-none' : 'text-text-secondary/40 hover:text-text-primary hover:bg-bg-tertiary/50'}`}
                >
                   <svg className={`w-6 h-6 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'} transition-transform duration-300`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
                   </svg>
                   
                   {activeTab === item.id && (
-                    <div className="absolute left-0 w-1 h-6 bg-accent-gold rounded-r-full shadow-[2px_0_12px_rgba(245,166,35,0.6)]"></div>
+                    <div className="absolute left-0 w-1 h-6 bg-accent-gold rounded-r-full shadow-none"></div>
                   )}
                </button>
             ))}
@@ -112,10 +244,7 @@ export default function Dashboard() {
          {/* 3. MAIN CONTENT AREA */}
          <div className="flex-1 flex flex-col min-w-0 relative">
             
-            {/* Global Price Ribbon (Ticker) - Moved to Right */}
-            <div className="bg-bg-secondary/40 border-b border-white/5 backdrop-blur-sm flex justify-end overflow-hidden">
-               <LivePriceTicker />
-            </div>
+
 
             {/* TAB CONTENT WITH DYNAMIC RENDERING */}
             <section className="flex-1 overflow-y-auto custom-scrollbar px-8 py-6 bg-bg-primary">
@@ -129,7 +258,7 @@ export default function Dashboard() {
 
             {/* 4. SLIDEABLE EXECUTION ENGINE (RIGHT SIDE) */}
             <aside 
-               className={`absolute top-0 right-0 h-full w-[360px] bg-bg-secondary/98 backdrop-blur-3xl border-l border-border z-30 transform transition-transform duration-700 cubic-bezier(0.19, 1, 0.22, 1) shadow-[-30px_0_60px_rgba(0,0,0,0.7)] ${isEngineOpen ? 'translate-x-0' : 'translate-x-full'}`}
+               className={`absolute top-0 right-0 h-full w-[360px] bg-bg-secondary/98 backdrop-blur-3xl border-l border-border z-30 transform transition-transform duration-700 cubic-bezier(0.19, 1, 0.22, 1) shadow-none ${isEngineOpen ? 'translate-x-0' : 'translate-x-full'}`}
             >
                <div className="p-8 space-y-8 h-full overflow-y-auto custom-scrollbar">
                   <div className="flex items-center justify-between">
@@ -142,22 +271,43 @@ export default function Dashboard() {
                      </button>
                   </div>
                   
-                  <AutoScalpSettings />
-
-                  <div className="pt-8 border-t border-white/5">
-                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em] italic">Live Signal Stream</h2>
-                        <div className="w-1.5 h-1.5 rounded-full bg-accent-gold animate-ping"></div>
-                     </div>
-                     <SignalCard />
+                  {/* Compact Tab Switcher styled with soft theme */}
+                  <div className="flex bg-bg-tertiary p-1 rounded-xl border border-border">
+                     <button
+                        onClick={() => setDrawerTab('live')}
+                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                           drawerTab === 'live'
+                           ? 'bg-bg-secondary text-accent-gold border border-border/40'
+                           : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                     >
+                        Live Trades ({positions?.length || 0})
+                     </button>
+                     <button
+                        onClick={() => setDrawerTab('history')}
+                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                           drawerTab === 'history'
+                           ? 'bg-bg-secondary text-accent-gold border border-border/40'
+                           : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                     >
+                        Trade History ({historyLogs?.length || 0})
+                     </button>
                   </div>
-                  
-                  <div className="pt-8 border-t border-white/5 pb-12">
-                     <h2 className="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em] mb-5 italic">Active Exposure Monitor</h2>
-                     <div className="space-y-4">
+
+                  {/* Tab Panel Content */}
+                  {drawerTab === 'live' && (
+                     <div className="space-y-4 pt-2">
+                        <div className="flex items-center justify-between">
+                           <h3 className="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em] italic">Active Exposure Monitor</h3>
+                           <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse"></span>
+                              <span className="text-[8px] font-black text-text-secondary uppercase tracking-widest">LIVE</span>
+                           </div>
+                        </div>
                         {(!positions || positions.length === 0) ? (
-                           <div className="p-12 border-2 border-dashed border-white/[0.03] rounded-3xl bg-white/[0.01] text-center">
-                              <p className="text-[10px] text-white/30 uppercase font-black tracking-[0.2em]">Zero Exposure Detected</p>
+                           <div className="p-12 border border-dashed border-border/40 rounded-xl bg-bg-tertiary/10 text-center select-none">
+                              <p className="text-[10px] text-text-secondary uppercase font-black tracking-[0.2em]">Zero Exposure Detected</p>
                            </div>
                         ) : (
                            positions.map(pos => (
@@ -169,7 +319,43 @@ export default function Dashboard() {
                            ))
                         )}
                      </div>
-                  </div>
+                  )}
+
+                  {drawerTab === 'history' && (
+                     <div className="space-y-3 pt-2">
+                        <h3 className="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em] italic mb-1">Recent Closed Logs</h3>
+                        {(!historyLogs || historyLogs.length === 0) ? (
+                           <div className="p-12 border border-dashed border-border/40 rounded-xl bg-bg-tertiary/10 text-center select-none">
+                              <p className="text-[10px] text-text-secondary uppercase font-black tracking-[0.2em]">No Closed Trades</p>
+                           </div>
+                        ) : (
+                           historyLogs.slice(0, 10).map(log => {
+                              const isProfit = parseFloat(log.profit) >= 0;
+                              return (
+                                 <div key={log.ticket || log.id} className="p-4 bg-bg-tertiary/30 border border-border rounded-xl flex flex-col gap-2 hover:border-border/80 transition-colors">
+                                    <div className="flex items-center justify-between">
+                                       <div className="flex items-center gap-2">
+                                          <span className="text-[10px] font-black text-text-primary tracking-tighter uppercase">{log.symbol}</span>
+                                          <span className={`text-[7px] font-black px-1.5 py-0.5 rounded border uppercase ${
+                                             log.type === 'buy' || log.type === 'BUY'
+                                             ? 'bg-accent-green/10 border-accent-green/20 text-accent-green' 
+                                             : 'bg-accent-red/10 border-accent-red/20 text-accent-red'
+                                          }`}>{log.type}</span>
+                                       </div>
+                                       <span className={`text-xs font-black font-mono ${isProfit ? 'text-accent-green' : 'text-accent-red'}`}>
+                                          {isProfit ? '+' : ''}${parseFloat(log.profit).toFixed(2)}
+                                       </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[8px] font-black text-text-secondary uppercase tracking-widest leading-none pt-1 border-t border-border/30">
+                                       <span>Lots: {parseFloat(log.lots || log.volume || 0.01).toFixed(2)}</span>
+                                       <span className="opacity-60">{log.close_time ? new Date(log.close_time).toLocaleTimeString() : 'Closed'}</span>
+                                    </div>
+                                 </div>
+                              );
+                           })
+                        )}
+                     </div>
+                  )}
                </div>
             </aside>
 

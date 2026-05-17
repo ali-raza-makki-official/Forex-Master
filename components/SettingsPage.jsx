@@ -104,7 +104,7 @@ export default function SettingsPage() {
           disabled={!hasChanges}
           className={`h-10 px-6 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
             hasChanges 
-              ? "bg-accent-gold text-black hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,184,0,0.3)] cursor-pointer" 
+              ? "bg-accent-gold text-black hover:scale-105 active:scale-95 cursor-pointer" 
               : "bg-white/5 text-white/30 border border-white/5 cursor-not-allowed"
           }`}
         >
@@ -208,7 +208,7 @@ export default function SettingsPage() {
                    <span className="text-[10px] font-medium text-white/20 italic p-1">No intelligence assets selected. Add symbols below to drive signals.</span>
                  )}
                  {laggingPairs.map(pair => (
-                    <div key={pair.symbol} className="flex flex-col gap-1 bg-accent-blue/10 border border-accent-blue/20 rounded-lg px-3 py-2 group hover:bg-accent-blue/20 transition-all shadow-[0_2px_10px_rgba(0,180,255,0.05)] animate-fade-in">
+                    <div key={pair.symbol} className="flex flex-col gap-1 bg-accent-blue/10 border border-accent-blue/20 rounded-lg px-3 py-2 group hover:bg-accent-blue/20 transition-all  animate-fade-in">
                        <div className="flex items-center justify-between gap-3">
                          <span className="text-[11px] font-black text-accent-blue tracking-tighter">{pair.symbol}</span>
                          <button 

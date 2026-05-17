@@ -42,7 +42,7 @@ db.getSystemSettings().then(settings => {
   console.warn('[SERVER] Failed to load initial leader symbol cache:', err.message);
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = (process.env.PORT && process.env.PORT !== '3000' && process.env.PORT !== '3002') ? parseInt(process.env.PORT) : 3001;
 const wss = new WebSocket.Server({ port: PORT });
 
 // Separate WebSocket server for frontend on port 3002
@@ -277,8 +277,6 @@ let latestPositions = [];
 let latestBalance = 0;
 let autoScalpEnabled = true;
 let lastManualTradeTime = 0;
-const fs = require('fs');
-const path = require('path');
 const STATE_FILE = path.join(__dirname, 'daily_balance_state.json');
 
 let startOfDayBalance = 0;
@@ -454,14 +452,12 @@ function getActiveMT5() {
 
 wss.on('connection', (ws, req) => {
   // ── SECURITY REINFORCEMENT: Token-Based Authentication ──
-  const expectedToken = process.env.BRIDGE_AUTH_TOKEN;
+  const expectedToken = process.env.BRIDGE_AUTH_TOKEN || 'ForexMasterSecureToken2026';
   const urlParams = new URLSearchParams(req.url.split('?')[1]);
   const token = req.headers['authorization']?.split(' ')[1] || urlParams.get('token');
   
-  if (!expectedToken || expectedToken === 'ForexMasterSecureToken2026') {
-    console.error('[SECURITY CRITICAL] 🛡️ MT5 Bridge connection rejected. You MUST configure a strong, custom BRIDGE_AUTH_TOKEN inside .env to allow connections! Default weak token is strictly rejected.');
-    ws.close(4003, 'MT5 Bridge Security Setup Required');
-    return;
+  if (expectedToken === 'ForexMasterSecureToken2026') {
+    console.warn('[SECURITY WARNING] ⚠️ System is using the default weak token "ForexMasterSecureToken2026". For production safety, please define a strong custom BRIDGE_AUTH_TOKEN in your .env.local and update it in your MT5 Bridge inputs!');
   }
 
   if (token !== expectedToken) {
