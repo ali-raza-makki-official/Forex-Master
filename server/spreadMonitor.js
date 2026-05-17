@@ -3,28 +3,39 @@
  * Ensures high-speed price data is within safe limits for HFT.
  */
 
-let maxAllowedSpread = 5.0; // Pips
+function startSpreadBroadcast(livePrices, db, broadcastFn) {
+    setInterval(async () => {
+        try {
+            const settings = await db.getSystemSettings().catch(() => ({}));
+            const leader = settings?.leader_symbol || 'XAUUSD';
+            const limit = settings?.max_spread || 5.0;
 
-function startSpreadBroadcast(livePrices, broadcastFn) {
-    setInterval(() => {
-        if (!livePrices['XAUUSD']) return;
+            if (!livePrices[leader]) return;
 
-        const { bid, ask } = livePrices['XAUUSD'];
-        const pips = parseFloat((Math.abs(ask - bid) * 10).toFixed(1));
-        const isSafe = pips <= maxAllowedSpread;
+            const { bid, ask } = livePrices[leader];
+            
+            // Dynamic multiplier: Metals use 10, currency pairs use 10000
+            const multiplier = (leader.includes('XAU') || leader.includes('GOLD') || leader.includes('XAG') || leader.includes('SILVER')) ? 10 : 10000;
+            const pips = parseFloat((Math.abs(ask - bid) * multiplier).toFixed(1));
+            const isSafe = pips <= limit;
 
-        broadcastFn({
-            event: 'spread_update',
-            symbol: 'XAUUSD',
-            pips,
-            isSafe
-        });
+            broadcastFn({
+                event: 'spread_update',
+                symbol: leader,
+                pips,
+                isSafe,
+                limit
+            });
+        } catch (err) {
+            // Safe fallback
+        }
     }, 1000); // Check every second
 }
 
-function checkSpread(symbol, bid, ask, maxSpread = null) {
-    const limit = maxSpread !== null ? maxSpread : maxAllowedSpread;
-    const pips = parseFloat((Math.abs(ask - bid) * 10).toFixed(1));
+function checkSpread(symbol, bid, ask, maxSpread = 5.0) {
+    const limit = maxSpread;
+    const multiplier = (symbol.includes('XAU') || symbol.includes('GOLD') || symbol.includes('XAG') || symbol.includes('SILVER')) ? 10 : 10000;
+    const pips = parseFloat((Math.abs(ask - bid) * multiplier).toFixed(1));
     return {
         allowed: pips <= limit,
         pips: pips,

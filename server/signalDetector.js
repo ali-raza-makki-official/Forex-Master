@@ -5,6 +5,7 @@ const { checkSpread }                 = require('./spreadMonitor');
 const { getDynamicSLTP, getVolatilityLabel } = require('./atrEngine');
 const { scoreSignal, getScoreDisplay }= require('./signalScorer');
 const { sendSignalAlert }             = require('./telegramAlert');
+const { v4: uuidv4 }                  = require('uuid');
 
 const SCORE_INTERVAL = 500; // 500ms min gap
 let lastScoreTime = 0;
@@ -111,7 +112,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
 
   // ── Build signal object ─────────────────────────────────
   const signal = {
-    id:                   require('uuid').v4(),
+    id:                   uuidv4(),
     type:                 score.direction,
     goldPrice:            leader.bid,
     expectedPips:         sltp.tpPips,

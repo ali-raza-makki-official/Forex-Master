@@ -29,23 +29,45 @@ export default function SimpleGoldTerminal() {
   const xauPositions = positions?.filter(p => p.symbol === 'XAUUSD') || [];
   const totalProfit = xauPositions.reduce((acc, p) => acc + (p.profit || 0), 0);
 
+  const getPipValue = (sym) => {
+    const s = sym.toUpperCase();
+    if (s.includes('JPY')) return 0.01;
+    if (s.includes('XAU') || s.includes('GOLD')) return 0.10;
+    if (s.includes('XAG') || s.includes('SILVER')) return 0.01;
+    if (s.includes('US30') || s.includes('DJI') || s.includes('NAS') || s.includes('SPX') || s.includes('UK100')) return 1.0;
+    return 0.0001;
+  };
+
+  const getDecimalPlaces = (sym) => {
+    const s = sym.toUpperCase();
+    if (s.includes('JPY')) return 3;
+    if (s.includes('XAU') || s.includes('GOLD')) return 2;
+    if (s.includes('XAG') || s.includes('SILVER')) return 3;
+    if (s.includes('US30') || s.includes('DJI') || s.includes('NAS') || s.includes('SPX') || s.includes('UK100')) return 1;
+    return 5;
+  };
+
   const handleQuickTrade = (type) => {
-    // 1 pip = 0.10 in Gold price (usually)
-    const pipValue = 0.10; 
-    const slOffset = slPips * pipValue;
-    const tpOffset = tpPips * pipValue;
+    const activeSymbol = 'XAUUSD';
+    const activePrice = prices?.[activeSymbol] || { bid: 0, ask: 0 };
+    if (!activePrice.bid || !activePrice.ask) return;
 
-    const sl = type === 'BUY' ? (gold.bid - slOffset) : (gold.ask + slOffset);
-    const tp = type === 'BUY' ? (gold.bid + tpOffset) : (gold.ask - tpOffset);
+    const pipVal = getPipValue(activeSymbol); 
+    const slOffset = slPips * pipVal;
+    const tpOffset = tpPips * pipVal;
 
-    console.log(`[TERMINAL] Sending ${type} request with SL: ${sl.toFixed(2)}, TP: ${tp.toFixed(2)}`);
+    const sl = type === 'BUY' ? (activePrice.bid - slOffset) : (activePrice.ask + slOffset);
+    const tp = type === 'BUY' ? (activePrice.bid + tpOffset) : (activePrice.ask - tpOffset);
+
+    const decimals = getDecimalPlaces(activeSymbol);
+    console.log(`[TERMINAL] Sending ${type} request for ${activeSymbol} with SL: ${sl.toFixed(decimals)}, TP: ${tp.toFixed(decimals)}`);
 
     sendTradeCommand('trade', {
-      symbol: 'XAUUSD',
+      symbol: activeSymbol,
       type: type,
       volume: lot,
-      sl: parseFloat(sl.toFixed(2)),
-      tp: parseFloat(tp.toFixed(2))
+      sl: parseFloat(sl.toFixed(decimals)),
+      tp: parseFloat(tp.toFixed(decimals))
     });
   };
 

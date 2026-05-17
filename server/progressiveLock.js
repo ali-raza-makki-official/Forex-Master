@@ -5,6 +5,7 @@
  */
 
 const WebSocket = require('ws');
+const { getPipMultiplier, getDecimalPlaces } = require('./atrEngine');
 
 // Cache to detect zone changes for toast notifications
 const lastKnownZones = new Map();
@@ -25,9 +26,12 @@ async function checkAndUpdateLocks(positions, livePrices, mt5Client, db, broadca
         const ticket = pos.ticket || pos.id;
         const entry = pos.openPrice;
         
+        const multiplier = getPipMultiplier(symbol);
+        const decimals = getDecimalPlaces(symbol);
+
         // Calculate current floating profit in pips
         const diff = pos.type === 'BUY' ? (currentPrice - entry) : (entry - currentPrice);
-        const profitPips = parseFloat((diff * 10).toFixed(1));
+        const profitPips = parseFloat((diff * multiplier).toFixed(1));
 
         // Determine Zone configuration based on profit pips
         let zone = 'ENTRY';
@@ -62,10 +66,10 @@ async function checkAndUpdateLocks(positions, livePrices, mt5Client, db, broadca
             nextProtectPips = 35;
         }
 
-        // Calculate Locked SL Price
+        // Calculate Locked SL Price dynamically based on pip multiplier and decimals
         const lockPrice = pos.type === 'BUY' 
-            ? parseFloat((entry + lockPips / 10).toFixed(2))
-            : parseFloat((entry - lockPips / 10).toFixed(2));
+            ? parseFloat((entry + lockPips / multiplier).toFixed(decimals))
+            : parseFloat((entry - lockPips / multiplier).toFixed(decimals));
 
         // Send real-time state update to frontend (Always stream the latest state so cards are live!)
         if (broadcastFn) {

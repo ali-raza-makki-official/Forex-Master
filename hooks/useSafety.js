@@ -5,24 +5,25 @@ import { useState, useEffect } from 'react';
  * Spread Monitor Logic:
  * Checks if current Bid/Ask spread exceeds safe limit (Max 5 pips).
  */
-export function useSpreadMonitor(prices) {
+export function useSpreadMonitor(prices, symbol = 'XAUUSD', maxSpread = 5.0) {
   const [spreadStatus, setSpreadStatus] = useState({ 
     pips: 0, 
     isSafe: true,
-    limit: 5.0 
+    limit: maxSpread 
   });
 
   useEffect(() => {
-    if (!prices || !prices['XAUUSD']) return;
+    if (!prices || !prices[symbol]) return;
 
-    const { bid, ask } = prices['XAUUSD'];
-    // In Gold, 1 pip = 0.10. So (Ask - Bid) * 10 = Pips
+    const { bid, ask } = prices[symbol];
+    // Metals (Gold/Silver) use 10, FX uses 10000
+    const multiplier = (symbol.includes('XAU') || symbol.includes('GOLD') || symbol.includes('XAG') || symbol.includes('SILVER')) ? 10 : 10000;
     const diff = Math.abs(ask - bid);
-    const pips = parseFloat((diff * 10).toFixed(1));
-    const isSafe = pips <= spreadStatus.limit;
+    const pips = parseFloat((diff * multiplier).toFixed(1));
+    const isSafe = pips <= maxSpread;
 
-    setSpreadStatus(prev => ({ ...prev, pips, isSafe }));
-  }, [prices]);
+    setSpreadStatus({ pips, isSafe, limit: maxSpread });
+  }, [prices, symbol, maxSpread]);
 
   return spreadStatus;
 }

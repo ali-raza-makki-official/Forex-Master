@@ -3,36 +3,31 @@ const { getNewsStatus } = require('./newsFilter');
 /**
  * Session Filter
  * Ensures trading only happens during high-liquidity sessions.
- * London: 07:00 - 12:00 UTC
- * New York: 13:00 - 18:00 UTC
+ * London: 07:00 - 15:00 UTC
+ * New York: 13:00 - 21:00 UTC
+ * Overlap: 13:00 - 15:00 UTC
  */
 
 function isSessionActive() {
-    const now = new Date();
-    const hour = now.getUTCHours();
-    
-    const isLondon = (hour >= 7 && hour < 12);
-    const isNewYork = (hour >= 13 && hour < 18);
-    const isOverlap = (hour >= 12 && hour < 13);
-    
-    // London, New York, and their overlap are highly liquid sessions
-    return isLondon || isNewYork || isOverlap;
+    const hour = new Date().getUTCHours();
+    // Allow trading during London and New York sessional hours
+    return hour >= 7 && hour < 21;
 }
 
 function getActiveSessionName() {
     const hour = new Date().getUTCHours();
-    if (hour >= 7 && hour < 12) return "LONDON";
-    if (hour >= 13 && hour < 18) return "NEW YORK";
-    if (hour >= 12 && hour < 13) return "SESSION OVERLAP";
+    if (hour >= 13 && hour < 15) return "LDN / NY OVERLAP";
+    if (hour >= 7 && hour < 13) return "LONDON";
+    if (hour >= 15 && hour < 21) return "NEW YORK";
     return "ASIAN / QUIET";
 }
 
 async function getSessionStatus() {
     const hour = new Date().getUTCHours();
     let session = "ASIAN / QUIET";
-    if (hour >= 7 && hour < 12) session = "LONDON";
-    else if (hour >= 13 && hour < 18) session = "NEW YORK";
-    else if (hour >= 12 && hour < 13) session = "SESSION OVERLAP";
+    if (hour >= 13 && hour < 15) session = "LDN / NY OVERLAP";
+    else if (hour >= 7 && hour < 13) session = "LONDON";
+    else if (hour >= 15 && hour < 21) session = "NEW YORK";
 
     const news = await getNewsStatus();
     

@@ -125,10 +125,31 @@ async function getTradeStats() {
   const stats = rows[0] || { total: 0, tp_hits: 0, sl_hits: 0, be_hits: 0 };
   const total = stats.total || 1;
 
+  // Calculate consecutive closed losses from the actual trade logs
+  let consecutiveSL = 0;
+  try {
+    const [lastTrades] = await conn.execute(`
+      SELECT profit FROM trade_log WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT 3
+    `);
+    for (const t of lastTrades) {
+      if (t.profit !== null && parseFloat(t.profit) < 0) {
+        consecutiveSL++;
+      } else {
+        break; // Stop counting on the first non-loss trade
+      }
+    }
+  } catch (err) {
+    console.error('[DB] Failed to fetch consecutive closed losses:', err.message);
+  }
+
   return {
     totalTrades: stats.total,
     tp: { count: stats.tp_hits, pct: ((stats.tp_hits / total) * 100).toFixed(1) },
-    sl: { count: stats.sl_hits, pct: ((stats.sl_hits / total) * 100).toFixed(1) },
+    sl: { 
+      count: stats.sl_hits, 
+      pct: ((stats.sl_hits / total) * 100).toFixed(1),
+      consecutive: consecutiveSL
+    },
     be: { count: stats.be_hits, pct: ((stats.be_hits / total) * 100).toFixed(1) }
   };
 }

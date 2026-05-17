@@ -127,6 +127,34 @@ frontendWss.on('connection', async (ws) => {
           }));
         }
       } else if (msg.action === 'trade') {
+        // ── RATE LIMIT GUARD ──
+        const now = Date.now();
+        if (now - lastManualTradeTime < 2000) {
+          console.warn('[SECURITY] 🛡️ Manual trade rate-limit hit. Rejecting execution.');
+          ws.send(JSON.stringify({ event: 'trade_response', success: false, error: 'Rate limit exceeded: Please wait 2 seconds between orders.' }));
+          return;
+        }
+        lastManualTradeTime = now;
+
+        // ── EMERGENCY CONTROL CHECK ──
+        if (!autoScalpEnabled) {
+          console.warn('[SERVER] 🛡️ Trade Execution Blocked: System is halted / Emergency Stop is active (autoScalpEnabled = false).');
+          broadcastToFrontend({
+            event: 'trade_response',
+            success: false,
+            error: 'Trade Blocked: Emergency Stop is active'
+          });
+          return;
+        }
+
+        // ── INPUT VALIDATION & SANITIZATION ──
+        const symbolRegex = /^[A-Z0-9.\-_/]{2,15}$/i;
+        if (!msg.symbol || typeof msg.symbol !== 'string' || !symbolRegex.test(msg.symbol)) {
+          console.warn(`[SECURITY WARN] 🛡️ Rejected trade attempt with malformed/unauthorized symbol: "${msg.symbol}"`);
+          ws.send(JSON.stringify({ event: 'trade_response', success: false, error: 'Invalid trading symbol value' }));
+          return;
+        }
+
         executeTrade(msg.symbol, msg.type, msg.volume, msg.sl, msg.tp);
       } else if (msg.action === 'close') {
         closePosition(msg.ticket, msg.volume);
@@ -206,11 +234,19 @@ function broadcastToFrontend(data) {
   }
 }
 
-// Initialize Self-Trainer with broadcast capability
-startSelfTrainer(broadcastToFrontend);
 
 // Helper to handle positions closed outside the dashboard (TP/SL/MT5 Manual)
+const closedTicketsInProgress = new Set();
+
 async function handleExternalClosure(pos) {
+  const ticketId = String(pos.id || pos.ticket);
+  if (closedTicketsInProgress.has(ticketId)) return;
+  closedTicketsInProgress.add(ticketId);
+  
+  setTimeout(() => {
+    closedTicketsInProgress.delete(ticketId);
+  }, 30000);
+
   try {
     const conn = await db.getDB();
     // Mark as closed. Since we don't have the final profit yet from heartbeat (it's gone),
@@ -240,21 +276,63 @@ const priceHistory = {}; // Last 60 seconds of prices per symbol
 let latestPositions = [];
 let latestBalance = 0;
 let autoScalpEnabled = true;
+let lastManualTradeTime = 0;
+const fs = require('fs');
+const path = require('path');
+const STATE_FILE = path.join(__dirname, 'daily_balance_state.json');
+
 let startOfDayBalance = 0;
 let lastBalanceResetDate = '';
+
+try {
+  if (fs.existsSync(STATE_FILE)) {
+    const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    const today = new Date().toDateString();
+    if (data.date === today) {
+      startOfDayBalance = parseFloat(data.startOfDayBalance) || 0;
+      lastBalanceResetDate = data.date || '';
+      console.log(`[SERVER] Restored start-of-day balance from state file: $${startOfDayBalance} (Date: ${lastBalanceResetDate})`);
+    } else {
+      console.log(`[SERVER] Stale state file date (${data.date}) vs today (${today}). Initializing fresh daily balance.`);
+    }
+  }
+} catch (err) {
+  console.warn('[SERVER] Failed to load daily balance state file:', err.message);
+}
+
 let cachedSymbols = null; // Store for new frontend connections
 const pendingTrades = new Map();
 const lastTradeTime = new Map(); // Track last execution timestamp per symbol to prevent race conditions
 
-// Clean up stale pending trade entries (older than 10 seconds) to prevent unbounded memory leaks
+// Clean up stale pending trade entries (older than 60 seconds) to prevent unbounded memory leaks
 setInterval(() => {
   const now = Date.now();
   for (const [id, val] of pendingTrades.entries()) {
-    if (val && val.timestamp && now - val.timestamp > 10000) {
+    if (val && val.timestamp && now - val.timestamp > 60000) {
       if (val.timeoutId) clearTimeout(val.timeoutId);
       pendingTrades.delete(id);
       console.warn(`[SERVER] 🧹 Garbage Collector: Cleaned up stale trade transaction ID: ${id}`);
     }
+  }
+}, 30000);
+
+// Periodically sync system settings from DB to in-memory cache every 10 seconds to prevent staleness
+setInterval(async () => {
+  try {
+    const settings = await db.getSystemSettings();
+    if (settings) {
+      if (settings.leader_symbol && settings.leader_symbol !== cachedLeaderSymbol) {
+        cachedLeaderSymbol = settings.leader_symbol;
+        console.log(`[SERVER SYNC] Leader symbol dynamically refreshed from DB: ${cachedLeaderSymbol}`);
+      }
+      const dbAutoScalp = !!settings.auto_scalp_enabled;
+      if (dbAutoScalp !== autoScalpEnabled) {
+        autoScalpEnabled = dbAutoScalp;
+        console.log(`[SERVER SYNC] Auto-Scalp status dynamically refreshed from DB: ${autoScalpEnabled}`);
+      }
+    }
+  } catch (err) {
+    console.error('[SERVER SYNC] Failed to sync settings from DB:', err.message);
   }
 }, 10000);
 
@@ -266,13 +344,19 @@ setInterval(async () => {
   
   isProcessingLocks = true;
   try {
-    await checkAndUpdateLocks(
-      latestPositions,       // From latest heartbeat
-      livePrices,            // Live bid/ask from MT5
-      getActiveMT5(),        // WebSocket to MT5
-      db,                    // MySQL connection
-      broadcastToFrontend    // Broadcast function to notify frontend
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Lock Checker execution timed out (4000ms)')), 4000)
     );
+    await Promise.race([
+      checkAndUpdateLocks(
+        latestPositions,       // From latest heartbeat
+        livePrices,            // Live bid/ask from MT5
+        getActiveMT5(),        // WebSocket to MT5
+        db,                    // MySQL connection
+        broadcastToFrontend    // Broadcast function to notify frontend
+      ),
+      timeoutPromise
+    ]);
   } catch (err) {
     console.error('[SERVER] Lock update failed:', err.message);
   } finally {
@@ -340,7 +424,7 @@ setInterval(async () => {
     let rowsDeleted = 0;
     do {
       const [result] = await pool.execute(
-        'DELETE FROM price_data WHERE created_at < NOW() - INTERVAL 7 DAY LIMIT 5000'
+        'DELETE FROM price_data WHERE timestamp < NOW() - INTERVAL 7 DAY LIMIT 5000'
       );
       rowsDeleted = result.affectedRows;
       if (rowsDeleted > 0) {
@@ -370,10 +454,16 @@ function getActiveMT5() {
 
 wss.on('connection', (ws, req) => {
   // ── SECURITY REINFORCEMENT: Token-Based Authentication ──
-  const expectedToken = process.env.BRIDGE_AUTH_TOKEN || 'ForexMasterSecureToken2026';
+  const expectedToken = process.env.BRIDGE_AUTH_TOKEN;
   const urlParams = new URLSearchParams(req.url.split('?')[1]);
   const token = req.headers['authorization']?.split(' ')[1] || urlParams.get('token');
   
+  if (!expectedToken || expectedToken === 'ForexMasterSecureToken2026') {
+    console.error('[SECURITY CRITICAL] 🛡️ MT5 Bridge connection rejected. You MUST configure a strong, custom BRIDGE_AUTH_TOKEN inside .env to allow connections! Default weak token is strictly rejected.');
+    ws.close(4003, 'MT5 Bridge Security Setup Required');
+    return;
+  }
+
   if (token !== expectedToken) {
     console.warn(`[SERVER] 🛡️ Unauthorized MT5 Bridge connection attempt blocked from ${req.socket.remoteAddress}`);
     ws.close(4003, 'Unauthorized Connection');
@@ -572,6 +662,14 @@ async function handleMT5Message(msg, ws) {
       startOfDayBalance = msg.balance;
       lastBalanceResetDate = today;
       console.log(`[SERVER] Daily start-of-day balance reset to: $${startOfDayBalance}`);
+      try {
+        fs.writeFileSync(STATE_FILE, JSON.stringify({
+          startOfDayBalance,
+          date: today
+        }, null, 2));
+      } catch (err) {
+        console.error('[SERVER] Failed to persist daily balance state:', err.message);
+      }
     }
     broadcastToFrontend({ event: 'heartbeat', ...msg });
   }
@@ -667,7 +765,7 @@ function executeTrade(symbol, type, volume, sl, tp) {
   
   const id = uuidv4();
   
-  // Safety timeout: If no response in 5 seconds, reply failure to prevent frontend from hanging
+  // Safety timeout: If no response in 15 seconds, reply failure to prevent frontend from hanging
   const timeoutId = setTimeout(() => {
     if (pendingTrades.has(id)) {
       console.warn(`[SERVER] ⚠️ Trade execution transaction timeout for ID: ${id}`);
@@ -675,11 +773,11 @@ function executeTrade(symbol, type, volume, sl, tp) {
         event: 'trade_response',
         id,
         success: false,
-        error: 'MT5 Execution Timeout (5000ms)'
+        error: 'MT5 Execution Timeout (15000ms)'
       });
       pendingTrades.delete(id);
     }
-  }, 5000);
+  }, 15000);
   
   pendingTrades.set(id, { timeoutId, timestamp: Date.now(), symbol });
   lastTradeTime.set(symbol, Date.now());
@@ -711,7 +809,7 @@ console.log(`[SERVER] MT5 WebSocket listening on ws://localhost:${PORT}`);
 console.log(`[SERVER] Frontend WebSocket listening on ws://localhost:${FRONTEND_PORT}`);
 
 initTelegram();
-startSpreadBroadcast(livePrices, broadcastToFrontend);
+startSpreadBroadcast(livePrices, db, broadcastToFrontend);
 startSelfTrainer(broadcastToFrontend);
 
 // Health Check HTTP Endpoint

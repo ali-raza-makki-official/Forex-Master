@@ -10,6 +10,7 @@ const cron = require('node-cron');
 
 let newsBlockActive = false;
 let currentEvent = null;
+let currentEventTimeMs = null;
 let nextNewsMs = null;
 let nextNewsName = null;
 
@@ -41,6 +42,7 @@ async function fetchEconomicCalendar() {
             if (diffMins > -dangerZoneMins && diffMins < dangerZoneMins) {
                 newsBlockActive = true;
                 currentEvent = event.title;
+                currentEventTimeMs = eventTime.getTime();
             }
 
             // Track next upcoming event
@@ -80,12 +82,12 @@ async function getNewsStatus() {
     const bufferMs = 10 * 60 * 1000; // 10 mins
 
     // Auto-reset if the last known news event has already passed its danger zone
-    if (newsBlockActive && currentEvent) {
-        // If we have a nextNewsMs that was the cause of the block, and it's now in the past
-        if (nextNewsMs && now > (nextNewsMs + bufferMs)) {
+    if (newsBlockActive && currentEventTimeMs) {
+        if (now > (currentEventTimeMs + bufferMs)) {
             console.log(`[NEWS FILTER] Auto-resetting block. Event ${currentEvent} passed.`);
             newsBlockActive = false;
             currentEvent = null;
+            currentEventTimeMs = null;
         }
     }
 

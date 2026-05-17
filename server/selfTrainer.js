@@ -46,8 +46,9 @@ async function runTraining(broadcastFn) {
         const hypAccuracy = (correctCount / hypotheticalSignals.length) * 100;
         console.log(`[TRAINER GRID] Threshold: ${gridScore}% | Accuracy: ${hypAccuracy.toFixed(1)}% | Samples: ${hypotheticalSignals.length}`);
         
-        // Prioritize higher accuracy, or higher sample counts at equal accuracy
-        if (hypAccuracy > bestScoreAccuracy || (hypAccuracy === bestScoreAccuracy && gridScore > bestMinScore)) {
+        // Prioritize higher accuracy; if equal accuracy, choose the one with higher sample size (lower threshold) to prevent signal starvation
+        const currentBestSamples = signals.filter(s => parseFloat(s.confidence_score) >= bestMinScore).length;
+        if (hypAccuracy > bestScoreAccuracy || (hypAccuracy === bestScoreAccuracy && hypotheticalSignals.length > currentBestSamples)) {
           bestScoreAccuracy = hypAccuracy;
           bestMinScore = gridScore;
         }

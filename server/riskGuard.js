@@ -17,11 +17,14 @@ function checkRiskSafety(tradeStats, currentBalance, startOfDayBalance, dailyLos
         reason = "MAX CONSECUTIVE LOSS REACHED";
     }
 
-    // 2. Check Daily Drawdown
-    const currentDrawdown = startOfDayBalance - currentBalance;
-    if (currentDrawdown >= dailyLossLimit) {
-        isBlocked = true;
-        reason = "DAILY LOSS LIMIT HIT";
+    // 2. Check Daily Drawdown (Protected against uninitialized balances)
+    let currentDrawdown = 0;
+    if (startOfDayBalance > 0 && currentBalance > 0) {
+        currentDrawdown = startOfDayBalance - currentBalance;
+        if (currentDrawdown >= dailyLossLimit) {
+            isBlocked = true;
+            reason = "DAILY LOSS LIMIT HIT";
+        }
     }
 
     return { isBlocked, reason, currentDrawdown };

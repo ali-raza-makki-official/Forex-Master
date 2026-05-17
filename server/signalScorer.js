@@ -36,7 +36,7 @@ function scoreSignal(leaderMoves, dbWeights, minConfidencePct = 85) {
     let finalScore = 0;
     
     // Dynamic threshold: user-defined confidence level of the maximum possible points
-    const confidenceRatio = Math.max(minConfidencePct / 100, 0.4); // Minimum 40% floor
+    const confidenceRatio = minConfidencePct / 100;
     const THRESHOLD = Math.max(totalMaxScore * confidenceRatio, 10);
 
     if (buyScore >= THRESHOLD && buyScore > sellScore) {
@@ -50,13 +50,13 @@ function scoreSignal(leaderMoves, dbWeights, minConfidencePct = 85) {
     const safeScore = Math.max(0, Math.round(finalScore || 0));
     const safeThreshold = Math.max(10, Math.round(THRESHOLD || 0));
     const scoreRatio = safeThreshold > 0 ? (safeScore / safeThreshold) : 0;
-    const grade = scoreRatio >= 1.5 ? 'A+' : (scoreRatio >= 1.0 ? 'B' : 'F');
+    const grade = scoreRatio >= 1.0 ? (scoreRatio >= 1.2 ? 'A+' : 'B') : 'F';
 
     return {
         direction,
         score: safeScore,
         threshold: safeThreshold,
-        action: direction ? 'EXECUTE' : 'IGNORE',
+        action: (direction && grade !== 'F') ? 'EXECUTE' : 'IGNORE',
         breakdown,
         grade
     };

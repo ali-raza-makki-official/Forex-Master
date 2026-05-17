@@ -37,21 +37,34 @@ export function WebSocketProvider({ children }) {
     function connect() {
       socket = new WebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3002');
       
+      let openTime = 0;
       socket.onopen = () => {
         setStatus('Connected');
         setWs(socket);
-        retryDelay = 1000; // reset delay on successful connection
+        openTime = Date.now();
+        // Reset delay to 1000ms only if connection stays healthy/open for >= 5 seconds
+        setTimeout(() => {
+          if (socket.readyState === WebSocket.OPEN && (Date.now() - openTime) >= 5000) {
+            retryDelay = 1000;
+          }
+        }, 5000);
       };
       
       socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.event === 'init') {
-          setPrices(msg.prices);
+          const pricesWithTime = {};
+          if (msg.prices) {
+            for (const [sym, data] of Object.entries(msg.prices)) {
+              pricesWithTime[sym] = { ...data, time: data.time || Date.now() };
+            }
+          }
+          setPrices(pricesWithTime);
         } else if (msg.event === 'price_update') {
           setPrices(prev => ({
             ...prev,
-            [msg.symbol]: { bid: msg.bid, ask: msg.ask, time: msg.time }
+            [msg.symbol]: { bid: msg.bid, ask: msg.ask, time: msg.time || Date.now() }
           }));
         } else if (msg.event === 'new_signal') {
           setSignals(prev => [msg.signal, ...prev].slice(0, 5)); // Keep last 5 (Extract inner signal object)

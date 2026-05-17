@@ -78,7 +78,9 @@ export default function LeadLagCanvas() {
    const goldStats = getAnalytics(leaderPair.symbol);
     // Gold Market Closed Check (Weekend or >15s stale price feed)
     const goldPriceObj = prices[leaderPair.symbol];
-    const goldLastUpdateTime = goldPriceObj?.time ? new Date(goldPriceObj.time).getTime() : 0;
+    const goldLastUpdateTime = goldPriceObj?.time 
+      ? (isNaN(new Date(goldPriceObj.time).getTime()) ? Number(goldPriceObj.time) : new Date(goldPriceObj.time).getTime()) 
+      : Date.now();
     const isGoldStale = !goldPrice || !goldPriceObj || (Date.now() - goldLastUpdateTime > 15000);
     
     const utcDate = new Date();

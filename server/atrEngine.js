@@ -17,12 +17,10 @@ function onPriceTick(symbol, bid, ask) {
   const newCandle = { open: mid, high: mid, low: mid, close: mid, time: nowMin5 };
 
   if (last && last.time === nowMin5) {
-    // Atomically assign values to prevent tick-level race conditions
-    Object.assign(last, {
-      high: Math.max(last.high, mid),
-      low: Math.min(last.low, mid),
-      close: mid
-    });
+    // Direct property updates (always safe and faster than Object.assign)
+    if (mid > last.high) last.high = mid;
+    if (mid < last.low) last.low = mid;
+    last.close = mid;
   } else {
     // Safe sequential push and shift to avoid out-of-order mutations
     candles.push(newCandle);
@@ -153,4 +151,4 @@ function getVolatilityLabel(atrPips) {
   return               { label: 'Extreme',       color: '#ff4757' };
 }
 
-module.exports = { onPriceTick, calculateATR, getDynamicSLTP, getVolatilityLabel };
+module.exports = { onPriceTick, calculateATR, getDynamicSLTP, getVolatilityLabel, getPipMultiplier, getDecimalPlaces };
