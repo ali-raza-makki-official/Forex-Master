@@ -376,8 +376,14 @@ void SendHeartbeat()
    
    for(int i = 0; i < pos_count; i++)
    {
-      string sym = PositionGetSymbol(i);
-      ulong ticket = PositionGetInteger(POSITION_TICKET);
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0)
+      {
+         Print("[BRIDGE] Warning: Could not select position at index ", i);
+         continue;
+      }
+      
+      string sym = PositionGetString(POSITION_SYMBOL);
       double vol = PositionGetDouble(POSITION_VOLUME);
       double op = PositionGetDouble(POSITION_PRICE_OPEN);
       double cp = PositionGetDouble(POSITION_PRICE_CURRENT);
@@ -663,6 +669,11 @@ void ProcessCommand(string json)
       
       for(int i = 0; i < m_symbols_count; i++)
       {
+         if(i >= ArraySize(m_symbols_to_track))
+         {
+            Print("[BRIDGE] ⚠️ Array bounds exceeded at index ", i);
+            break;
+         }
          StringTrimLeft(m_symbols_to_track[i]);
          StringTrimRight(m_symbols_to_track[i]);
          

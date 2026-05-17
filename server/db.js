@@ -1,6 +1,6 @@
 const mysql = require('mysql2/promise');
-
 let pool;
+let healthCheckCounter = 0;
 
 async function getDB() {
   if (!pool) {
@@ -18,6 +18,19 @@ async function getDB() {
       throw new Error('Database connection failed: ' + e.message);
     }
   }
+  
+  // Health check every 100 calls to enable auto-reconnection and database self-healing
+  if (++healthCheckCounter % 100 === 0) {
+    try {
+      const conn = await pool.getConnection();
+      conn.release();
+    } catch (e) {
+      console.warn('[DB] Health check failed, resetting pool and reconnecting...');
+      pool = null;
+      return await getDB();  // Graceful recursive recovery
+    }
+  }
+  
   return pool;
 }
 

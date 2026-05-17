@@ -19,11 +19,16 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     if (!gold) return;
 
     // PRE-LAYER: Get System Settings with fallback recovery
-    const settings = await db.getSystemSettings().catch(() => null);
+    const settings = await db.getSystemSettings().catch(() => ({}));
     if (!settings || !settings.id) {
-      console.warn('[SIGNAL DETECTOR] Settings not available in database.');
+      console.warn('[SIGNAL DETECTOR] Settings not initialized in database.');
       return;
     }
+
+    // Validate structure and unpack properties upfront with safe defaults
+    const maxSpread = settings.max_spread || 5.0;
+    const laggingSymbols = settings.lagging_symbols || '';
+    const minConfidence = settings.min_confidence || 85;
 
     const weights = dbWeights || (await db.getModelWeights().catch(() => []));
 
@@ -37,7 +42,6 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   }
 
   // ── LAYER 2: Spread monitor (Using dynamic DB limit) ────
-  const maxSpread = settings.max_spread || 5.0;
   const spread = checkSpread('XAUUSD', gold.bid, gold.ask, maxSpread);
   if (broadcastFn) broadcastFn({ event: 'spread_status', ...spread });
 
@@ -49,11 +53,11 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   // ── Calculate leader moves (last 2 minutes) ─────────────
   let parsedLagging = [];
   try {
-    if (settings.lagging_symbols) {
-      if (settings.lagging_symbols.startsWith('[')) {
-        parsedLagging = JSON.parse(settings.lagging_symbols);
+    if (laggingSymbols) {
+      if (laggingSymbols.startsWith('[')) {
+        parsedLagging = JSON.parse(laggingSymbols);
       } else {
-        parsedLagging = settings.lagging_symbols.split(',').map(s => ({ symbol: s, correlation: 'same', weight: 50 }));
+        parsedLagging = laggingSymbols.split(',').map(s => ({ symbol: s, correlation: 'same', weight: 50 }));
       }
     }
   } catch(e) {}
@@ -94,7 +98,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   if (Object.keys(leaderMoves).length === 0) return;
 
   // ── LAYER 4: Signal scorer ──────────────────────────────
-  const score = scoreSignal(leaderMoves, weights, settings.min_confidence || 85);
+  const score = scoreSignal(leaderMoves, weights, minConfidence);
   if (broadcastFn) broadcastFn({ event: 'score_update', score, display: getScoreDisplay(score.score) });
 
   if (score.action === 'IGNORE') return;

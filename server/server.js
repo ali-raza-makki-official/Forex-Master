@@ -217,6 +217,18 @@ let lastBalanceResetDate = '';
 let cachedSymbols = null; // Store for new frontend connections
 const pendingTrades = new Map();
 
+// Clean up stale pending trade entries (older than 10 seconds) to prevent unbounded memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, val] of pendingTrades.entries()) {
+    if (val && val.timestamp && now - val.timestamp > 10000) {
+      if (val.timeoutId) clearTimeout(val.timeoutId);
+      pendingTrades.delete(id);
+      console.warn(`[SERVER] 🧹 Garbage Collector: Cleaned up stale trade transaction ID: ${id}`);
+    }
+  }
+}, 10000);
+
 // Run lock checker every 5 seconds
 setInterval(async () => {
   if (!getActiveMT5() || !latestPositions.length) return;
@@ -313,10 +325,21 @@ wss.on('connection', (ws) => {
 
   ws.on('message', async (data) => {
     try {
-      const msg = JSON.parse(data);
+      // Validate incoming frame data format and size (DOS protection)
+      if (typeof data !== 'string' && !Buffer.isBuffer(data)) {
+        throw new Error('Unsupported binary websocket message format');
+      }
+      const dataStr = data.toString();
+      if (dataStr.length > 100000) { // Enforce 100KB payload ceiling
+        throw new Error('Websocket message size limit (100KB) exceeded');
+      }
+      
+      const msg = JSON.parse(dataStr);
       await handleMT5Message(msg, ws);
     } catch(e) {
-      console.error('[SERVER] JSON parse error:', e.message);
+      console.error('[SERVER] Message processing error:', e.message);
+      // Immediately disconnect client on malicious or corrupted payload
+      ws.close(4000, 'Invalid message payload');
     }
   });
 
@@ -397,11 +420,9 @@ async function handleMT5Message(msg, ws) {
           // Check for opposite trade (reversal scenario)
           const opposite = latestPositions.find(p => p.symbol === symbol && p.type !== type);
           if (opposite) {
-            console.log(`[POSITION GUARD] 🔄 Opposite trade detected! Reversing position. Closing active ${opposite.type} #${opposite.id || opposite.ticket} before opening new ${type}.`);
+            console.log(`[POSITION GUARD] 🔄 Opposite trade detected! Reversing position. Closing active ${opposite.type} #${opposite.id || opposite.ticket} and deferring trade execution to next cycle.`);
             closePosition(opposite.id || opposite.ticket);
-            
-            // Wait 200ms for MT5 to process the closure before sending the new trade request
-            await new Promise(resolve => setTimeout(resolve, 200));
+            return; // Don't execute the opposite trade in this tick, wait for next heartbeat cycle
           }
 
           const lotSize = settings.lot_size || 0.01;
@@ -422,10 +443,11 @@ async function handleMT5Message(msg, ws) {
     // Detect TP/SL or manual closures not triggered by the dashboard (with safety check)
     if (Array.isArray(latestPositions)) {
       for (const oldPos of latestPositions) {
-        if (!oldPos) continue;
-        const exists = newPositions.find(p => p && (p.id === oldPos.id || p.ticket === oldPos.id));
+        if (!oldPos || (!oldPos.id && !oldPos.ticket)) continue;
+        const targetId = oldPos.id || oldPos.ticket;
+        const exists = newPositions.find(p => p && (p.id === targetId || p.ticket === targetId));
         if (!exists) {
-          console.log(`[SERVER] Position #${oldPos.id} disappeared from heartbeat. Marking as closed.`);
+          console.log(`[SERVER] Position #${targetId} disappeared from heartbeat. Marking as closed.`);
           handleExternalClosure(oldPos).catch(e => console.error("Closure Handle Error:", e));
         }
       }
@@ -446,7 +468,9 @@ async function handleMT5Message(msg, ws) {
   else if (msg.event === 'trade_response') {
     // Clear safety timeout if transaction ID matches
     if (msg.id && pendingTrades.has(msg.id)) {
-      clearTimeout(pendingTrades.get(msg.id));
+      const entry = pendingTrades.get(msg.id);
+      const tId = entry && entry.timeoutId ? entry.timeoutId : entry;
+      clearTimeout(tId);
       pendingTrades.delete(msg.id);
     }
     
@@ -547,7 +571,7 @@ function executeTrade(symbol, type, volume, sl, tp) {
     }
   }, 5000);
   
-  pendingTrades.set(id, timeoutId);
+  pendingTrades.set(id, { timeoutId, timestamp: Date.now() });
 
   getActiveMT5().send(JSON.stringify({
     action: 'trade',
@@ -593,7 +617,7 @@ const healthServer = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      mt5: (getActiveMT5() && getActiveMT5().readyState === 1) ? 'connected' : 'down',
+      mt5: (getActiveMT5() && getActiveMT5().readyState === WebSocket.OPEN) ? 'connected' : 'down',
       db: dbStatus,
       ws_clients: frontendClients.size,
       uptime: process.uptime()
