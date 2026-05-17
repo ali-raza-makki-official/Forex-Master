@@ -47,13 +47,18 @@ function scoreSignal(leaderMoves, dbWeights, minConfidencePct = 85) {
         finalScore = sellScore;
     }
 
+    const safeScore = Math.max(0, Math.round(finalScore || 0));
+    const safeThreshold = Math.max(10, Math.round(THRESHOLD || 0));
+    const scoreRatio = safeThreshold > 0 ? (safeScore / safeThreshold) : 0;
+    const grade = scoreRatio >= 1.5 ? 'A+' : (scoreRatio >= 1.0 ? 'B' : 'F');
+
     return {
         direction,
-        score: Math.round(finalScore),
-        threshold: Math.round(THRESHOLD),
+        score: safeScore,
+        threshold: safeThreshold,
         action: direction ? 'EXECUTE' : 'IGNORE',
         breakdown,
-        grade: finalScore >= (THRESHOLD * 1.5) ? 'A+' : (finalScore >= THRESHOLD ? 'B' : 'F')
+        grade
     };
 }
 

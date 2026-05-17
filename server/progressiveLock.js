@@ -4,11 +4,20 @@
  * Synchronizes with database schema and updates frontend in real-time.
  */
 
+const WebSocket = require('ws');
+
 // Cache to detect zone changes for toast notifications
 const lastKnownZones = new Map();
 
 async function checkAndUpdateLocks(positions, livePrices, mt5Client, db, broadcastFn) {
+    if (!Array.isArray(positions)) return;
+
     for (const pos of positions) {
+        if (!pos || !pos.symbol || !pos.type || !pos.openPrice) {
+            console.warn('[LOCK] Incomplete position data received, skipping progressive lock evaluation:', pos);
+            continue;
+        }
+
         const symbol = pos.symbol;
         const currentPrice = livePrices[symbol]?.bid;
         if (!currentPrice) continue;
@@ -95,7 +104,7 @@ async function checkAndUpdateLocks(positions, livePrices, mt5Client, db, broadca
                 console.log(`[LOCK] Upgrading ${symbol} Ticket #${ticket} to ${zone} (+${lockPips} Pips) SL: ${lockPrice}`);
                 
                 // 1. Send update command to MT5 bridge
-                if (mt5Client && mt5Client.readyState === 1) {
+                if (mt5Client && mt5Client.readyState === WebSocket.OPEN) {
                     mt5Client.send(JSON.stringify({
                         action: 'modify_sl',
                         ticket: ticket,

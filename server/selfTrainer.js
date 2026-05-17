@@ -11,6 +11,13 @@ async function runTraining(broadcastFn) {
     console.log('[TRAINER] Initiating self-training optimization cycle...');
     const conn = await getDB();
     
+    // Check if was_correct column exists first to avoid silent failures
+    const [columns] = await conn.execute("SHOW COLUMNS FROM scalp_signals WHERE Field = 'was_correct'");
+    if (columns.length === 0) {
+      console.warn('[TRAINER] was_correct column not initialized in scalp_signals. Skipping training.');
+      return;
+    }
+    
     // Get all verified signals from last 7 days
     const [signals] = await conn.execute(`
       SELECT trigger_pair, expected_delay_minutes, actual_result_pips,
@@ -74,14 +81,22 @@ async function runTraining(broadcastFn) {
 }
 
 function startSelfTrainer(broadcastFn) {
-  // 1. Run immediately on server start to sync database
-  setTimeout(() => {
-    runTraining(broadcastFn);
+  // 1. Run immediately on server start to sync database (with safe execution)
+  setTimeout(async () => {
+    try {
+      await runTraining(broadcastFn);
+    } catch(e) {
+      console.error('[TRAINER INITIAL] Initialization training failed:', e.message);
+    }
   }, 3000); // 3 seconds grace period to allow db pool to stabilize
 
-  // 2. Schedule hourly execution
+  // 2. Schedule hourly execution (with safe execution)
   cron.schedule('0 * * * *', async () => {
-    await runTraining(broadcastFn);
+    try {
+      await runTraining(broadcastFn);
+    } catch(e) {
+      console.error('[TRAINER CRON] Scheduled training failed:', e.message);
+    }
   });
   
   console.log('[TRAINER] Self-training service initialized (Immediate + Hourly Cron)');

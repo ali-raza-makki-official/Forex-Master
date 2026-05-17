@@ -2,8 +2,16 @@ const mysql = require('mysql2/promise');
 
 async function migrate() {
   const uri = process.env.DATABASE_URL || 'mysql://root:@localhost:3306/gold_scalper';
-  console.log('Connecting to:', uri);
-  const conn = await mysql.createConnection(uri);
+  let conn;
+  try {
+    console.log('Connecting to database:', uri);
+    conn = await mysql.createConnection(uri);
+    console.log('✅ Connected to database successfully!');
+  } catch(e) {
+    console.error('❌ Database connection failed:', e.message);
+    console.error('Please check if MySQL server is running and your DATABASE_URL environment variable is correct.');
+    process.exit(1);
+  }
   
   console.log('Starting comprehensive schema migration...');
   

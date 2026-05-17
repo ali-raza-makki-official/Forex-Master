@@ -455,12 +455,44 @@ async function handleMT5Message(msg, ws) {
       try {
         if (msg.is_close) {
           const conn = await db.getDB();
-          await conn.execute(`
-            UPDATE trade_log 
-            SET close_price=?, profit=?, closed_at=NOW()
-            WHERE ticket=?
-          `, [msg.price, msg.profit || 0, msg.ticket]);
-          console.log(`[SERVER] Trade Log Updated (Closed): Ticket ${msg.ticket}, Profit: ${msg.profit}`);
+          
+          // Fetch entry price and type to calculate precise pips gained and verify scalp signal
+          const [trades] = await conn.execute('SELECT entry_price, trade_type, signal_id FROM trade_log WHERE ticket = ?', [msg.ticket]);
+          if (trades && trades.length > 0) {
+            const trade = trades[0];
+            const entryPrice = parseFloat(trade.entry_price);
+            const closePrice = parseFloat(msg.price);
+            let pipsGained = 0;
+            if (entryPrice && closePrice) {
+              pipsGained = trade.trade_type === 'BUY' ? (closePrice - entryPrice) * 10 : (entryPrice - closePrice) * 10;
+              pipsGained = parseFloat(pipsGained.toFixed(2));
+            }
+            
+            await conn.execute(`
+              UPDATE trade_log 
+              SET close_price=?, profit=?, pips_gained=?, closed_at=NOW()
+              WHERE ticket=?
+            `, [msg.price, msg.profit || 0, pipsGained, msg.ticket]);
+            console.log(`[SERVER] Trade Log Updated (Closed): Ticket ${msg.ticket}, Profit: ${msg.profit}, Pips: ${pipsGained}`);
+            
+            // If this trade was triggered by an algorithmic signal, verify it for the self trainer
+            if (trade.signal_id) {
+              const wasCorrect = (msg.profit || 0) > 0;
+              await conn.execute(
+                'UPDATE scalp_signals SET was_correct = ?, actual_result_pips = ? WHERE id = ?',
+                [wasCorrect ? 1 : 0, pipsGained, trade.signal_id]
+              );
+              console.log(`[SERVER] 🎯 Scalp Signal Verified: ID ${trade.signal_id}, Correct: ${wasCorrect}, Pips: ${pipsGained}`);
+            }
+          } else {
+            // Fallback update if entry details aren't found in trade log
+            await conn.execute(`
+              UPDATE trade_log 
+              SET close_price=?, profit=?, closed_at=NOW()
+              WHERE ticket=?
+            `, [msg.price, msg.profit || 0, msg.ticket]);
+            console.log(`[SERVER] Trade Log Updated (Closed - Fallback): Ticket ${msg.ticket}, Profit: ${msg.profit}`);
+          }
         } else {
           await saveTradeLog(msg);
           console.log(`[SERVER] Trade Log Created (Opened): Ticket ${msg.ticket}`);

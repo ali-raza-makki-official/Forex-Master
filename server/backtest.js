@@ -53,14 +53,22 @@ async function runBacktest() {
   console.log(`  Slippage: ${BACKTEST_CONFIG.slippage_pips} pips | Spread: ${BACKTEST_CONFIG.spread_pips} pips`);
   console.log('═══════════════════════════════════════════\n');
 
-  const db = await mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'gold_scalper',
-    waitForConnections: true,
-    connectionLimit: 5,
-  });
+  const db = await mysql.createPool(
+    process.env.DATABASE_URL 
+      ? {
+          uri: process.env.DATABASE_URL,
+          waitForConnections: true,
+          connectionLimit: 5,
+        }
+      : {
+          host: process.env.DB_HOST || 'localhost',
+          user: process.env.DB_USER || 'root',
+          password: process.env.DB_PASSWORD || '',
+          database: process.env.DB_NAME || 'gold_scalper',
+          waitForConnections: true,
+          connectionLimit: 5,
+        }
+  );
 
   // ── Step 1: Load all price data ──────────────────────────
   console.log('[STEP 1] Loading historical price data...');
@@ -300,11 +308,14 @@ function simulateTrade(goldData, startIdx, direction, bid, ask, slPips, tpPips) 
 
 // ── Helper: Calculate ATR from last 14 ticks ─────────────────
 function calcATR(data, idx) {
+  if (idx < 1) return null;
   const period = Math.min(14, idx);
   let trSum = 0;
   for (let i = 1; i <= period; i++) {
+    const startIdx = idx - i;
+    if (startIdx < 0) break;
     const curr = data[idx - i + 1];
-    const prev = data[idx - i];
+    const prev = data[startIdx];
     if (!curr || !prev) continue;
     const tr = Math.max(
       curr.ask - curr.bid,
@@ -312,7 +323,7 @@ function calcATR(data, idx) {
     );
     trSum += tr;
   }
-  return trSum / period; // price units
+  return trSum / Math.max(period, 1); // price units
 }
 
 // ── Helper: Leader 2-min move ────────────────────────────────
@@ -365,11 +376,13 @@ function recalibrateWeights(bySymbol, weekStart, allRows) {
       if ((lMove > 0 && gMove < 0) || (lMove < 0 && gMove > 0)) agreeCount++;
     }
 
-    const correlation = agreeCount / (total || 1);
+    if (total < 5) continue;
+    const correlation = agreeCount / total;
 
-    // Rescale points: base 40/35/25, adjusted by correlation strength
+    // Rescale points: base 40/35/25, adjusted by correlation strength (with non-zero check)
     const basePoints = { DXY: 40, US10Y: 35, SPX500: 25 };
-    const adjusted = Math.round(basePoints[pair] * (correlation / 0.6));
+    const correlationFactor = correlation > 0 ? (correlation / 0.6) : 0.5;
+    const adjusted = Math.round(basePoints[pair] * correlationFactor);
     newWeights[pair] = {
       ...WEIGHTS[pair],
       points:        Math.max(10, Math.min(50, adjusted)),

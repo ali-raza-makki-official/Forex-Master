@@ -14,15 +14,21 @@ function onPriceTick(symbol, bid, ask) {
   const candles = candleData[symbol];
   const last    = candles[candles.length - 1];
 
+  const newCandle = { open: mid, high: mid, low: mid, close: mid, time: nowMin5 };
+
   if (last && last.time === nowMin5) {
-    // Update current candle
-    last.high  = Math.max(last.high, mid);
-    last.low   = Math.min(last.low,  mid);
-    last.close = mid;
+    // Atomically assign values to prevent tick-level race conditions
+    Object.assign(last, {
+      high: Math.max(last.high, mid),
+      low: Math.min(last.low, mid),
+      close: mid
+    });
   } else {
-    // New 5-min candle
-    candles.push({ open: mid, high: mid, low: mid, close: mid, time: nowMin5 });
-    if (candles.length > 50) candles.shift();  // Keep last 50 candles
+    // Safe sequential push and shift to avoid out-of-order mutations
+    candles.push(newCandle);
+    while (candles.length > 50) {
+      candles.shift();
+    }
   }
 }
 
@@ -55,7 +61,7 @@ function calculateATR(symbol, period = 14) {
 // Calculate dynamic SL/TP using ATR
 function getDynamicSLTP(symbol, signalType, currentPrice) {
   const atr = calculateATR(symbol);
-  if (!atr) {
+  if (atr === null || atr === undefined) {
     // Fallback to fixed pips if not enough data yet
     return getFallbackSLTP(signalType, currentPrice);
   }

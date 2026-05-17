@@ -10,17 +10,22 @@ const SCORE_INTERVAL = 500; // 500ms min gap
 let lastScoreTime = 0;
 
 async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn) {
-  const now = Date.now();
-  if (now - lastScoreTime < SCORE_INTERVAL) return;
-  lastScoreTime = now;
+  try {
+    const now = Date.now();
+    if (now - lastScoreTime < SCORE_INTERVAL) return;
+    lastScoreTime = now;
 
-  const gold = livePrices['XAUUSD'];
-  if (!gold) return;
+    const gold = livePrices['XAUUSD'];
+    if (!gold) return;
 
-  const weights = dbWeights || (await db.getModelWeights().catch(() => []));
+    // PRE-LAYER: Get System Settings with fallback recovery
+    const settings = await db.getSystemSettings().catch(() => null);
+    if (!settings || !settings.id) {
+      console.warn('[SIGNAL DETECTOR] Settings not available in database.');
+      return;
+    }
 
-  // ── PRE-LAYER: Get System Settings ─────────────────────
-  const settings = await db.getSystemSettings();
+    const weights = dbWeights || (await db.getModelWeights().catch(() => []));
 
   // ── LAYER 1: Session filter ─────────────────────────────
   const session = await getSessionStatus();
@@ -63,6 +68,12 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     const history = priceHistory[leader];
     const current = livePrices[leader];
     if (!history || !history.length || !current) continue;
+
+    // Check if the latest cached tick is stale (e.g. older than 15s) to avoid false history calculations
+    const latestTick = history[history.length - 1];
+    if (!latestTick || Date.now() - latestTick.time > 15 * 1000) {
+      continue; // Skip: Stale data
+    }
 
     // Ensure we have at least 90 seconds of history to calculate a valid 2-minute move
     const oldest = history[0];
@@ -139,7 +150,10 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
 
   console.log(`[SIGNAL] ${signal.type} | Score: ${score.score} | ${score.grade} | ATR: ${sltp.atrPips} pips | Spread: ${spread.pips} pips`);
   
-  return signal;
+    return signal;
+  } catch (e) {
+    console.error('[SIGNAL DETECTOR] Master Error:', e.message);
+  }
 }
 
 function getAvgLag(breakdown, dbWeights) {
