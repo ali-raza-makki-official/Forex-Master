@@ -15,8 +15,9 @@ const PRESETS = [
     lagging: [
       { symbol: 'XAGUSD', correlation: 'same', weight: 90 },
       { symbol: 'DXY', correlation: 'inverse', weight: 95 },
+      { symbol: 'USTEC', correlation: 'same', weight: 75 },
       { symbol: 'US10Y', correlation: 'inverse', weight: 70 },
-      { symbol: 'SPX500', correlation: 'inverse', weight: 60 },
+      { symbol: 'SPX500', correlation: 'same', weight: 60 },
       { symbol: 'GBPUSD', correlation: 'same', weight: 50 }
     ],
     risk: { lotSize: '0.10', dailyLossLimit: '250.00', maxSpread: '4.0', newsBufferMins: '15' }
