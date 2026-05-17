@@ -499,6 +499,127 @@ void ReceiveData()
 }
 
 //+------------------------------------------------------------------+
+//| Multi-Broker Symbol Alias Resolver                               |
+//| Automatically matches CFD index names across different brokers   |
+//+------------------------------------------------------------------+
+string ResolveBrokerSymbol(string reqSymbol)
+{
+   string sym = reqSymbol;
+   StringTrimLeft(sym);
+   StringTrimRight(sym);
+   StringReplace(sym, " ", "");
+   string sym_upper = sym;
+   StringToUpper(sym_upper);
+   
+   // 1. Direct match check
+   if(SymbolSelect(sym, true)) return sym;
+   if(SymbolSelect(sym_upper, true)) return sym_upper;
+   
+   // 2. Suffix match (.m, .cfd, .cx, etc.)
+   string common_suffixes[7];
+   common_suffixes[0] = ".m";
+   common_suffixes[1] = ".cfd";
+   common_suffixes[2] = ".cx";
+   common_suffixes[3] = ".z";
+   common_suffixes[4] = "i";
+   common_suffixes[5] = "-m";
+   common_suffixes[6] = "-sb";
+   
+   for(int s = 0; s < 7; s++) {
+      string test1 = sym + common_suffixes[s];
+      string test2 = sym_upper + common_suffixes[s];
+      if(SymbolSelect(test1, true)) return test1;
+      if(SymbolSelect(test2, true)) return test2;
+   }
+   
+   // 3. Known index/asset cross-broker alias mappings
+   string aliases[8];
+   int alias_count = 0;
+   
+   if(sym_upper == "SPX500" || sym_upper == "SPX" || sym_upper == "US500" || sym_upper == "S&P500" || sym_upper == "USA500") {
+      aliases[0] = "US500"; aliases[1] = "SPX500"; aliases[2] = "SPX"; aliases[3] = "USA500"; 
+      aliases[4] = "US500Cash"; aliases[5] = "S&P500"; aliases[6] = ".SPX500"; aliases[7] = "US 500";
+      alias_count = 8;
+   }
+   else if(sym_upper == "NAS100" || sym_upper == "USTEC" || sym_upper == "US100" || sym_upper == "NASDAQ100" || sym_upper == "NASDAQ") {
+      aliases[0] = "USTEC"; aliases[1] = "NAS100"; aliases[2] = "US100"; aliases[3] = "NASDAQ100"; 
+      aliases[4] = "NASCash"; aliases[5] = "NASDAQ"; aliases[6] = ".NAS100"; aliases[7] = "US Tech 100";
+      alias_count = 8;
+   }
+   else if(sym_upper == "US30" || sym_upper == "DJI" || sym_upper == "DJ30" || sym_upper == "DOW" || sym_upper == "WALLSTREET") {
+      aliases[0] = "US30"; aliases[1] = "DJI"; aliases[2] = "DJ30"; aliases[3] = "US30Cash"; 
+      aliases[4] = "WallStreet30"; aliases[5] = "DOWJONES"; aliases[6] = ".US30"; aliases[7] = "Dow Jones 30";
+      alias_count = 8;
+   }
+   else if(sym_upper == "GOLD" || sym_upper == "XAUUSD" || sym_upper == "XAU") {
+      aliases[0] = "XAUUSD"; aliases[1] = "GOLD"; aliases[2] = "XAUUSD.m"; aliases[3] = "GOLD.m"; 
+      aliases[4] = "XAUUSD.cfd"; aliases[5] = "GOLD.cfd"; aliases[6] = "XAU"; aliases[7] = "XAUUSD.m";
+      alias_count = 8;
+   }
+   else if(sym_upper == "SILVER" || sym_upper == "XAGUSD" || sym_upper == "XAG") {
+      aliases[0] = "XAGUSD"; aliases[1] = "SILVER"; aliases[2] = "XAGUSD.m"; aliases[3] = "SILVER.m"; 
+      aliases[4] = "XAGUSD.cfd"; aliases[5] = "SILVER.cfd"; aliases[6] = "XAG"; aliases[7] = "XAGUSD.m";
+      alias_count = 8;
+   }
+   else if(sym_upper == "GER30" || sym_upper == "DE30" || sym_upper == "DAX" || sym_upper == "DE40" || sym_upper == "GER40") {
+      aliases[0] = "GER30"; aliases[1] = "DE30"; aliases[2] = "DAX30"; aliases[3] = "GER40"; 
+      aliases[4] = "DE40"; aliases[5] = "DAX40"; aliases[6] = "DAX"; aliases[7] = "Germany40";
+      alias_count = 8;
+   }
+   else if(sym_upper == "US10Y" || sym_upper == "UST10Y" || sym_upper == "US10YR" || sym_upper == "TNOTE") {
+      aliases[0] = "US10Y"; aliases[1] = "UST10Y"; aliases[2] = "US10YR"; aliases[3] = "TNOTE";
+      aliases[4] = "US10Y_Cash"; aliases[5] = "US10"; aliases[6] = ".US10Y"; aliases[7] = "US10Y.m";
+      alias_count = 8;
+   }
+   else if(sym_upper == "DXY" || sym_upper == "USDINDEX" || sym_upper == "USDX") {
+      aliases[0] = "DXY"; aliases[1] = "USDX"; aliases[2] = "USDIndex"; aliases[3] = ".DXY";
+      aliases[4] = "DXY.m"; aliases[5] = "USDIndex.m"; aliases[6] = "DXY_Cash"; aliases[7] = "DXY_m";
+      alias_count = 8;
+   }
+   
+   // Try mappings directly and with suffixes
+   for(int a = 0; a < alias_count; a++) {
+      string alias = aliases[a];
+      if(alias == "") continue;
+      if(SymbolSelect(alias, true)) return alias;
+      
+      string alias_upper = alias;
+      StringToUpper(alias_upper);
+      if(SymbolSelect(alias_upper, true)) return alias_upper;
+      
+      for(int s = 0; s < 7; s++) {
+         string test1 = alias + common_suffixes[s];
+         string test2 = alias_upper + common_suffixes[s];
+         if(SymbolSelect(test1, true)) return test1;
+         if(SymbolSelect(test2, true)) return test2;
+      }
+   }
+   
+   // 4. Broker-wide Database Scan (Loops through symbols list)
+   int totalSymbols = SymbolsTotal(false); // Try Market Watch first
+   for(int i = 0; i < totalSymbols; i++) {
+      string name = SymbolName(i, false);
+      string name_upper = name;
+      StringToUpper(name_upper);
+      if(StringFind(name_upper, sym_upper) >= 0 || StringFind(sym_upper, name_upper) >= 0) {
+         if(SymbolSelect(name, true)) return name;
+      }
+   }
+   
+   totalSymbols = SymbolsTotal(true); // Try all terminal symbols
+   for(int i = 0; i < totalSymbols; i++) {
+      string name = SymbolName(i, true);
+      string name_upper = name;
+      StringToUpper(name_upper);
+      if(StringFind(name_upper, sym_upper) >= 0 || StringFind(sym_upper, name_upper) >= 0) {
+         if(SymbolSelect(name, true)) return name;
+      }
+   }
+   
+   return ""; // Not found
+}
+
+//+------------------------------------------------------------------+
 //| Handle trade execution and close commands received from Node server|
 //+------------------------------------------------------------------+
 void ProcessCommand(string json)
@@ -506,7 +627,10 @@ void ProcessCommand(string json)
    if(StringFind(json, "\"action\":\"trade\"") >= 0)
    {
       string reqId = ExtractJsonValue(json, "\"id\"");
-      string symbol = ExtractJsonValue(json, "\"symbol\"");
+      string raw_symbol = ExtractJsonValue(json, "\"symbol\"");
+      string symbol = ResolveBrokerSymbol(raw_symbol);
+      if(symbol == "") symbol = raw_symbol; // fallback
+      
       string type = ExtractJsonValue(json, "\"type\"");
       double volume = StringToDouble(ExtractJsonValue(json, "\"volume\""));
       double sl_points = StringToDouble(ExtractJsonValue(json, "\"sl\""));
@@ -646,19 +770,72 @@ void ProcessCommand(string json)
       ulong ticket = StringToInteger(ExtractJsonValue(json, "\"ticket\""));
       double newSL = StringToDouble(ExtractJsonValue(json, "\"sl\""));
       if(PositionSelectByTicket(ticket)) {
+         string symbol = PositionGetString(POSITION_SYMBOL);
+         long posType  = PositionGetInteger(POSITION_TYPE);
+         double currentSL = PositionGetDouble(POSITION_SL);
+         double currentTP = PositionGetDouble(POSITION_TP);
+         
+         double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+         double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+         double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+         int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+         int stopLevelPoints = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+         
+         // 1. Calculate broker stop level buffer in price units
+         double stopLevelPrice = stopLevelPoints * point;
+         if(stopLevelPrice <= 0) {
+            double spread = ask - bid;
+            stopLevelPrice = (spread > 0) ? spread * 1.5 : 10 * point;
+         }
+         
+         // Add a tiny extra fractional safety cushion (5 points) to guarantee broker acceptance
+         double safetyCushion = 5 * point;
+         stopLevelPrice += safetyCushion;
+         
+         double adjustedSL = newSL;
+         bool isValid = true;
+         
+         // 2. Programmatically enforce StopLevel and Trade Direction rules
+         if(posType == POSITION_TYPE_BUY) {
+            double maxAllowedSL = bid - stopLevelPrice;
+            if(adjustedSL > maxAllowedSL) {
+               adjustedSL = maxAllowedSL;
+            }
+            // Ensure adjustedSL is normalized and actually better than currentSL
+            adjustedSL = NormalizeDouble(adjustedSL, digits);
+            if(adjustedSL <= 0 || (currentSL > 0 && adjustedSL <= currentSL)) {
+               isValid = false;
+            }
+         } else if(posType == POSITION_TYPE_SELL) {
+            double minAllowedSL = ask + stopLevelPrice;
+            if(adjustedSL < minAllowedSL) {
+               adjustedSL = minAllowedSL;
+            }
+            // Ensure adjustedSL is normalized and actually better (lower) than currentSL
+            adjustedSL = NormalizeDouble(adjustedSL, digits);
+            if(adjustedSL <= 0 || (currentSL > 0 && adjustedSL >= currentSL)) {
+               isValid = false;
+            }
+         }
+         
+         if(!isValid) {
+            Print("[BRIDGE] ⚠️ SL Modification skipped to prevent 10016 error. CurrentSL: ", DoubleToString(currentSL, digits), " RequestedSL: ", DoubleToString(newSL, digits), " AdjustedSL: ", DoubleToString(adjustedSL, digits), " (No improvement or too close to current price)");
+            return;
+         }
+         
          MqlTradeRequest req; MqlTradeResult res;
          ZeroMemory(req); ZeroMemory(res);
          req.action   = TRADE_ACTION_SLTP;
          req.position = ticket;
-         req.symbol   = PositionGetString(POSITION_SYMBOL);
-         req.sl       = NormalizeDouble(newSL, (int)SymbolInfoInteger(req.symbol, SYMBOL_DIGITS));
-         req.tp       = PositionGetDouble(POSITION_TP);
+         req.symbol   = symbol;
+         req.sl       = adjustedSL;
+         req.tp       = currentTP;
          
          bool success = OrderSend(req, res);
-         if(success) {
-            Print("[BRIDGE] SL Modified successfully: Ticket=", ticket, " NewSL=", newSL);
+         if(success && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED)) {
+            Print("[BRIDGE] ✓ SL Modified successfully: Ticket=", ticket, " RequestedSL=", DoubleToString(newSL, digits), " AppliedSL=", DoubleToString(adjustedSL, digits));
          } else {
-            Print("[BRIDGE] ❌ SL Modification failed: Ticket=", ticket, " Retcode=", res.retcode);
+            Print("[BRIDGE] ❌ SL Modification failed: Ticket=", ticket, " AppliedSL=", DoubleToString(adjustedSL, digits), " Retcode=", res.retcode);
          }
       }
    }
@@ -681,43 +858,19 @@ void ProcessCommand(string json)
             Print("[BRIDGE] ⚠️ Array bounds exceeded at index ", i);
             break;
          }
-         StringTrimLeft(m_symbols_to_track[i]);
-         StringTrimRight(m_symbols_to_track[i]);
          
          string sym = m_symbols_to_track[i];
+         string resolved = ResolveBrokerSymbol(sym);
          
-         if(SymbolSelect(sym, true))
+         if(resolved != "")
          {
-            Print("[BRIDGE] Symbol verified and selected: ", sym);
-            continue;
+            m_symbols_to_track[i] = resolved;
+            Print("[BRIDGE] Symbol verified and selected: ", sym, " -> Resolved as: ", resolved);
          }
-         
-         string sym_suffix = sym + ".m";
-         if(SymbolSelect(sym_suffix, true))
+         else
          {
-            Print("[BRIDGE] Symbol auto-matched with suffix: ", sym, " -> ", sym_suffix);
-            m_symbols_to_track[i] = sym_suffix;
-            continue;
+            Print("[BRIDGE] ❌ Failed to find symbol in MT5 Market Watch or broker database: ", sym);
          }
-         
-         string sym_nospace = sym;
-         StringReplace(sym_nospace, " ", "");
-         if(SymbolSelect(sym_nospace, true))
-         {
-            Print("[BRIDGE] Symbol auto-matched without spaces: ", sym, " -> ", sym_nospace);
-            m_symbols_to_track[i] = sym_nospace;
-            continue;
-         }
-         
-         string sym_nospace_suffix = sym_nospace + ".m";
-         if(SymbolSelect(sym_nospace_suffix, true))
-         {
-            Print("[BRIDGE] Symbol auto-matched with no spaces and suffix: ", sym, " -> ", sym_nospace_suffix);
-            m_symbols_to_track[i] = sym_nospace_suffix;
-            continue;
-         }
-         
-         Print("[BRIDGE] ❌ Failed to find symbol in MT5 Market Watch: ", sym);
       }
    }
    else if(StringFind(json, "\"action\":\"get_symbols\"") >= 0)

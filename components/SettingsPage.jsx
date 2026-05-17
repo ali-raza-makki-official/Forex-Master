@@ -4,11 +4,98 @@ import { useWebSocket } from '@/components/WebSocketProvider';
 import { useToast } from './ToastSystem';
 import SelfTrainerStatus from './SelfTrainerStatus';
 
+// Premium Institutional Trading Profiles
+const PRESETS = [
+  {
+    id: 'gold_inst',
+    name: 'Gold Institutional',
+    desc: 'Ultra-Sensitive HFT Gold profile optimized for high-volume liquidity drives. Multi-correlated benchmark tracking.',
+    icon: '⚡',
+    leader: 'XAUUSD',
+    lagging: [
+      { symbol: 'XAGUSD', correlation: 'same', weight: 90 },
+      { symbol: 'DXY', correlation: 'inverse', weight: 95 },
+      { symbol: 'US10Y', correlation: 'inverse', weight: 70 },
+      { symbol: 'SPX500', correlation: 'inverse', weight: 60 },
+      { symbol: 'GBPUSD', correlation: 'same', weight: 50 }
+    ],
+    risk: { lotSize: '0.10', dailyLossLimit: '250.00', maxSpread: '4.0', newsBufferMins: '15' }
+  },
+  {
+    id: 'silver_beta',
+    name: 'Silver High-Beta',
+    desc: 'High-volatility scalper tied closely to Gold momentum.',
+    icon: '🥈',
+    leader: 'XAGUSD',
+    lagging: [
+      { symbol: 'XAUUSD', correlation: 'same', weight: 85 },
+      { symbol: 'DXY', correlation: 'inverse', weight: 70 }
+    ],
+    risk: { lotSize: '0.10', dailyLossLimit: '80.00', maxSpread: '6.0', newsBufferMins: '30' }
+  },
+  {
+    id: 'us30_momentum',
+    name: 'Dow Jones Momentum',
+    desc: 'Index arbitrage correlated with S&P500 & Nasdaq.',
+    icon: '📈',
+    leader: 'US30',
+    lagging: [
+      { symbol: 'SPX500', correlation: 'same', weight: 80 },
+      { symbol: 'NAS100', correlation: 'same', weight: 70 },
+      { symbol: 'DXY', correlation: 'inverse', weight: 50 }
+    ],
+    risk: { lotSize: '0.10', dailyLossLimit: '200.00', maxSpread: '4.0', newsBufferMins: '15' }
+  },
+  {
+    id: 'eurusd_spread',
+    name: 'EURUSD Spread Arb',
+    desc: 'FX micro-scalper utilizing Dollar Index & GBP correlations.',
+    icon: '💶',
+    leader: 'EURUSD',
+    lagging: [
+      { symbol: 'GBPUSD', correlation: 'same', weight: 75 },
+      { symbol: 'DXY', correlation: 'inverse', weight: 90 },
+      { symbol: 'USDCHF', correlation: 'inverse', weight: 60 }
+    ],
+    risk: { lotSize: '0.50', dailyLossLimit: '50.00', maxSpread: '1.5', newsBufferMins: '10' }
+  },
+  {
+    id: 'btc_volatility',
+    name: 'Bitcoin Volatility',
+    desc: 'High-spread crypto scalper tracking S&P & Ethereum.',
+    icon: '₿',
+    leader: 'BTCUSD',
+    lagging: [
+      { symbol: 'ETHUSD', correlation: 'same', weight: 80 },
+      { symbol: 'DXY', correlation: 'inverse', weight: 50 },
+      { symbol: 'SPX500', correlation: 'same', weight: 60 }
+    ],
+    risk: { lotSize: '0.02', dailyLossLimit: '150.00', maxSpread: '25.0', newsBufferMins: '10' }
+  }
+];
+
+// Utility function to find fuzzy symbol matches based on broker naming (e.g. XAUUSD.pro or GOLD)
+const findBestSymbolMatch = (target, availableList) => {
+  if (!availableList || availableList.length === 0) return target;
+  
+  // Exact match
+  if (availableList.includes(target)) return target;
+  
+  // Fuzzy match (case-insensitive substring)
+  const match = availableList.find(sym => 
+    sym.toUpperCase().includes(target.toUpperCase()) || 
+    target.toUpperCase().includes(sym.toUpperCase())
+  );
+  return match || target;
+};
+
 export default function SettingsPage() {
   const { systemSettings, ws, activePairs, setActivePairs, leaderPair, setLeaderPair, prices, allSymbols } = useWebSocket();
   const { addToast } = useToast();
-  const [leader, setLeader] = useState(leaderPair.symbol);
-  const [laggingPairs, setLaggingPairs] = useState(activePairs); // Array of objects
+  
+  // Local form states
+  const [leader, setLeader] = useState(leaderPair.symbol || 'XAUUSD');
+  const [laggingPairs, setLaggingPairs] = useState(activePairs || []); // Array of objects
   const [newPair, setNewPair] = useState('');
   const [newPairCorrelation, setNewPairCorrelation] = useState('same');
   const [newPairWeight, setNewPairWeight] = useState(50);
@@ -19,24 +106,25 @@ export default function SettingsPage() {
   const [maxSpread, setMaxSpread] = useState('5.0');
   const [newsBufferMins, setNewsBufferMins] = useState('30');
 
-  // Sync state with WebSocket loaded systemSettings
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Initialize form state EXACTLY ONCE when WebSocket / DB payload is first loaded.
+  // This prevents the 2-second background stats broadcast from wiping out user inputs!
   useEffect(() => {
-    if (systemSettings) {
+    const hasSettings = systemSettings && Object.keys(systemSettings).length > 0;
+    if (hasSettings && !isInitialized) {
       if (systemSettings.lot_size !== undefined) setLotSize(String(systemSettings.lot_size));
       if (systemSettings.daily_loss_limit !== undefined) setDailyLossLimit(String(systemSettings.daily_loss_limit));
       if (systemSettings.max_spread !== undefined) setMaxSpread(String(systemSettings.max_spread));
       if (systemSettings.news_buffer_mins !== undefined) setNewsBufferMins(String(systemSettings.news_buffer_mins));
+      
+      if (leaderPair && leaderPair.symbol) setLeader(leaderPair.symbol);
+      if (activePairs && activePairs.length > 0) setLaggingPairs(activePairs);
+      
+      setIsInitialized(true);
+      console.log('[SETTINGS] Successfully initialized form states from database.');
     }
-  }, [systemSettings]);
-
-  // Keep lagging pairs and leader in sync with global context changes
-  useEffect(() => {
-    setLeader(leaderPair.symbol);
-  }, [leaderPair.symbol]);
-
-  useEffect(() => {
-    setLaggingPairs(activePairs);
-  }, [activePairs]);
+  }, [systemSettings, leaderPair, activePairs, isInitialized]);
 
   // Master list of all symbols from MT5 bridge
   const masterSymbolList = allSymbols?.length > 0 ? allSymbols : Object.keys(prices || {});
@@ -81,6 +169,9 @@ export default function SettingsPage() {
         news_buffer_mins: parseInt(newsBufferMins) || 30
       }));
     }
+    
+    // Allow the form to safely re-sync to the new database baseline after saving
+    setIsInitialized(false);
     addToast("Configuration Saved & Persisted", "success");
   };
 
@@ -91,6 +182,30 @@ export default function SettingsPage() {
                     String(dailyLossLimit) !== String(systemSettings?.daily_loss_limit || '50.00') ||
                     String(maxSpread) !== String(systemSettings?.max_spread || '5.0') ||
                     String(newsBufferMins) !== String(systemSettings?.news_buffer_mins || '30');
+
+  const applyPreset = (preset) => {
+    // Find matching leader in masterSymbolList
+    const matchedLeader = findBestSymbolMatch(preset.leader, masterSymbolList);
+    
+    // Find matching lagging symbols
+    const matchedLagging = preset.lagging.map(lag => {
+      const matchedSym = findBestSymbolMatch(lag.symbol, masterSymbolList);
+      return {
+        symbol: matchedSym,
+        correlation: lag.correlation,
+        weight: lag.weight
+      };
+    });
+
+    setLeader(matchedLeader);
+    setLaggingPairs(matchedLagging);
+    setLotSize(preset.risk.lotSize);
+    setDailyLossLimit(preset.risk.dailyLossLimit);
+    setMaxSpread(preset.risk.maxSpread);
+    setNewsBufferMins(preset.risk.newsBufferMins);
+
+    addToast(`Preset Loaded: ${preset.name}. Review below, then click 'Save Configuration' to apply!`, 'info');
+  };
 
   return (
     <div className="max-w-3xl space-y-8 pb-20">
@@ -110,6 +225,34 @@ export default function SettingsPage() {
         >
           {hasChanges ? "Save Configuration" : "Saved & Synced"}
         </button>
+      </div>
+
+      {/* HFT ARCHITECTURE TEMPLATES */}
+      <div className="p-6 bg-bg-secondary/40 border border-white/5 rounded-2xl space-y-4">
+        <div>
+          <h3 className="text-[10px] font-black text-accent-gold uppercase tracking-[0.2em]">Institutional Scalper Templates</h3>
+          <p className="text-[10px] text-text-secondary mt-1">Load optimized profiles. Symbols auto-adjust to your broker's specific naming conventions.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              onClick={() => applyPreset(preset)}
+              className="flex flex-col text-left p-4 bg-black/40 border border-white/5 hover:border-accent-gold/30 hover:bg-accent-gold/[0.02] rounded-xl transition-all duration-300 group hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <div className="flex justify-between items-center w-full mb-2">
+                <span className="text-xl">{preset.icon}</span>
+                <span className="text-[8px] font-black text-accent-gold opacity-0 group-hover:opacity-100 uppercase tracking-widest transition-opacity">LOAD</span>
+              </div>
+              <div className="text-[11px] font-black text-white group-hover:text-accent-gold uppercase tracking-tighter truncate w-full">{preset.name}</div>
+              <div className="text-[9px] text-text-secondary mt-1 line-clamp-2 leading-relaxed h-[36px]">{preset.desc}</div>
+              <div className="mt-3 flex justify-between items-center w-full text-[8px] font-bold text-white/30 uppercase">
+                <span>{preset.leader}</span>
+                <span>{preset.lagging.length} drivers</span>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* RISK SETTINGS */}

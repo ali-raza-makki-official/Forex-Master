@@ -100,122 +100,131 @@ export default function Dashboard() {
               </div>
            </div>
 
-            {/* Auto-Scalp Header Button (Quick Settings Dropdown) */}
-            <div className="relative">
-               <button
-                  onClick={() => setAutoScalpPopupOpen(!isAutoScalpPopupOpen)}
-                  className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer hover:bg-bg-secondary hover:border-border/80 transition-all active:scale-95 ${isAutoScalpPopupOpen || isAutoScalpEnabled ? 'bg-bg-secondary border-accent-gold/40 text-accent-gold' : 'bg-bg-tertiary border-border text-text-primary/80'}`}
-                  title="Auto-Scalp Quick Settings"
-               >
-                  <svg className={`w-5 h-5 ${isAutoScalpEnabled ? 'animate-pulse text-accent-gold' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 5h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2zM9 9h6v6H9V9z" />
-                  </svg>
-               </button>
+             {/* 1. AUTO-SCALP TOGGLE BUTTON */}
+             <div className="relative">
+                <button
+                   onClick={() => setAutoScalpPopupOpen(!isAutoScalpPopupOpen)}
+                   className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 ${
+                      isAutoScalpPopupOpen || isAutoScalpEnabled 
+                      ? 'bg-bg-secondary border-accent-gold/50 text-accent-gold shadow-sm shadow-accent-gold/5' 
+                      : 'bg-bg-tertiary border-border text-text-primary/80 hover:bg-bg-secondary hover:border-accent-gold/40 hover:text-accent-gold'
+                   }`}
+                   title="Auto-Scalp Quick Settings"
+                >
+                   <svg className={`w-5 h-5 ${isAutoScalpEnabled ? 'animate-pulse text-accent-gold' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 5h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2zM9 9h6v6H9V9z" />
+                   </svg>
+                </button>
 
-               {/* Quick Settings Dropdown Popup */}
-               {isAutoScalpPopupOpen && (
-                  <>
-                     <div 
-                        className="fixed inset-0 z-40" 
-                        onClick={() => setAutoScalpPopupOpen(false)}
-                     ></div>
-                     
-                     <div className="absolute right-0 mt-2.5 w-64 bg-bg-secondary border border-border rounded-xl p-5 z-50 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="flex flex-col">
-                           <span className="text-[7px] text-accent-gold font-black uppercase tracking-[0.25em] mb-1">Quick Console</span>
-                           <h4 className="text-xs font-black text-text-primary uppercase">Auto-Scalp Config</h4>
-                        </div>
-                        
-                        {/* 1. Toggle Switch */}
-                        <div className="flex items-center justify-between py-2.5 border-y border-border/50">
-                           <span className="text-[10px] font-black text-text-primary uppercase">Engine Active</span>
-                           <button 
-                              onClick={handleHeaderAutoScalpToggle}
-                              className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${isAutoScalpEnabled ? 'bg-accent-green' : 'bg-text-secondary/20'}`}
-                           >
-                              <div 
-                                 className="absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300"
-                                 style={{ left: isAutoScalpEnabled ? '18px' : '2px' }}
-                              ></div>
-                           </button>
-                        </div>
-                        
-                        {/* 2. Confidence Slider */}
-                        <div className="space-y-2">
-                           <div className="flex justify-between text-[9px] font-black uppercase text-text-secondary">
-                              <span>Min Confidence</span>
-                              <span className="text-accent-gold">{systemSettings?.min_confidence || 85}%</span>
-                           </div>
-                           <input 
-                              type="range" 
-                              min="50" 
-                              max="95" 
-                              value={systemSettings?.min_confidence || 85} 
-                              onChange={(e) => {
-                                 const val = parseInt(e.target.value);
-                                 if (socket && socket.readyState === 1) {
-                                    socket.send(JSON.stringify({ 
-                                       action: 'set_auto_scalp', 
-                                       enabled: isAutoScalpEnabled,
-                                       minConfidence: val
-                                    }));
-                                 }
-                              }}
-                              className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-accent-gold"
-                           />
-                        </div>
-                     </div>
-                  </>
-               )}
-            </div>
+                {/* Quick Settings Dropdown Popup */}
+                {isAutoScalpPopupOpen && (
+                   <>
+                      <div 
+                         className="fixed inset-0 z-40" 
+                         onClick={() => setAutoScalpPopupOpen(false)}
+                      ></div>
+                      
+                      <div className="absolute right-0 mt-2.5 w-64 bg-bg-secondary border border-border rounded-xl p-5 z-50 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                         <div className="flex flex-col">
+                            <span className="text-[7px] text-accent-gold font-black uppercase tracking-[0.25em] mb-1">Quick Console</span>
+                            <h4 className="text-xs font-black text-text-primary uppercase">Auto-Scalp Config</h4>
+                         </div>
+                         
+                         {/* 1. Toggle Switch */}
+                         <div className="flex items-center justify-between py-2.5 border-y border-border/50">
+                            <span className="text-[10px] font-black text-text-primary uppercase">Engine Active</span>
+                            <button 
+                               onClick={handleHeaderAutoScalpToggle}
+                               className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${isAutoScalpEnabled ? 'bg-accent-green' : 'bg-text-secondary/20'}`}
+                            >
+                               <div 
+                                  className="absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300"
+                                  style={{ left: isAutoScalpEnabled ? '18px' : '2px' }}
+                               ></div>
+                            </button>
+                         </div>
+                         
+                         {/* 2. Confidence Slider */}
+                         <div className="space-y-2">
+                            <div className="flex justify-between text-[9px] font-black uppercase text-text-secondary">
+                               <span>Min Confidence</span>
+                               <span className="text-accent-gold">{systemSettings?.min_confidence || 85}%</span>
+                            </div>
+                            <input 
+                               type="range" 
+                               min="50" 
+                               max="95" 
+                               value={systemSettings?.min_confidence || 85} 
+                               onChange={(e) => {
+                                  const val = parseInt(e.target.value);
+                                  if (socket && socket.readyState === 1) {
+                                     socket.send(JSON.stringify({ 
+                                        action: 'set_auto_scalp', 
+                                        enabled: isAutoScalpEnabled,
+                                        minConfidence: val
+                                     }));
+                                  }
+                               }}
+                               className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-accent-gold"
+                            />
+                         </div>
+                      </div>
+                   </>
+                )}
+             </div>
 
-            {/* Slider Console Toggle Button (styled like theme toggle) */}
-            <button 
-               onClick={() => setEngineOpen(!isEngineOpen)}
-               className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer hover:bg-bg-secondary hover:border-border/80 transition-all active:scale-95 ${isEngineOpen ? 'bg-bg-secondary border-accent-gold/40 text-accent-gold' : 'bg-bg-tertiary border-border text-text-primary/80'}`}
-               title="Toggle Trade Drawer Console"
-            >
-               <svg className={`w-5 h-5 transition-transform duration-300 ${isEngineOpen ? 'text-accent-gold rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M4 6h16M4 12h16M4 18h16" />
-               </svg>
-            </button>
+             {/* 2. EXECUTION CONSOLE TOGGLE */}
+             <button 
+                onClick={() => setEngineOpen(!isEngineOpen)}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 ${
+                   isEngineOpen 
+                   ? 'bg-bg-secondary border-accent-gold/50 text-accent-gold shadow-sm shadow-accent-gold/5' 
+                   : 'bg-bg-tertiary border-border text-text-primary/80 hover:bg-bg-secondary hover:border-accent-gold/40 hover:text-accent-gold'
+                }`}
+                title="Toggle Trade Drawer Console"
+             >
+                <svg className={`w-5 h-5 transition-transform duration-300 ${isEngineOpen ? 'text-accent-gold rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+             </button>
 
-            {/* Execution Engine Toggle (Main Entry) */}
-           <button 
-              onClick={() => setEngineOpen(!isEngineOpen)} style={{ display: 'none' }}
-              className={`flex items-center gap-2.5 px-5 h-10 rounded-xl border transition-all duration-500 group ${isEngineOpen ? 'bg-accent-gold text-black border-accent-gold shadow-none' : 'bg-bg-tertiary border-border text-text-primary/80 hover:bg-bg-secondary hover:border-border/60'}`}
-           >
-              <div className="flex flex-col items-start">
-                 <span className={`text-[8px] font-black uppercase tracking-widest leading-none mb-0.5 ${isEngineOpen ? 'text-black' : 'text-accent-gold'}`}>Auto-Scalp</span>
-                 <span className="text-[10px] font-black uppercase leading-none">Execution Console</span>
-              </div>
-              <svg className={`w-4 h-4 transition-transform duration-500 ${isEngineOpen ? 'rotate-180' : 'group-hover:translate-y-0.5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
-           </button>
+             {/* 3. THEME TOGGLE */}
+             <button
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 ${
+                   theme === 'dark'
+                   ? 'bg-bg-secondary border-accent-gold/50 text-accent-gold shadow-sm shadow-accent-gold/5'
+                   : 'bg-bg-tertiary border-border text-text-primary/80 hover:bg-bg-secondary hover:border-accent-gold/40 hover:text-accent-gold'
+                }`}
+                title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+             >
+                {theme === 'dark' ? (
+                   <svg className="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                   </svg>
+                ) : (
+                   <svg className="w-5 h-5 text-accent-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                   </svg>
+                )}
+             </button>
 
-           {/* Theme Toggle Button */}
-           <button
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="w-10 h-10 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center cursor-pointer hover:bg-bg-secondary hover:border-border/80 transition-all active:scale-95 text-text-primary/80"
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-           >
-              {theme === 'dark' ? (
-                 <svg className="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
-                 </svg>
-              ) : (
-                 <svg className="w-5 h-5 text-accent-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                 </svg>
-              )}
-           </button>
-
-           <div className="relative group">
-              <div className="absolute inset-0 bg-accent-gold rounded-xl blur-[2px] opacity-0 group-hover:opacity-20 transition-opacity"></div>
-              <div className="relative w-10 h-10 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center cursor-pointer group-hover:border-accent-gold/40 transition-all active:scale-95">
-                 <span className="text-[10px] font-black text-accent-gold uppercase group-hover:text-text-primary transition-colors">AR</span>
-              </div>
-              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-accent-green rounded-full border-2 border-bg-secondary"></div>
-           </div>
+             {/* 4. USER PROFILE & BRIDGE STATUS */}
+             <div className="relative group">
+                <button 
+                   className={`w-10 h-10 rounded-xl border flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 ${
+                      status === 'Connected' 
+                      ? 'bg-bg-secondary border-accent-gold/50 text-accent-gold shadow-sm shadow-accent-gold/5' 
+                      : 'bg-bg-tertiary border-border text-text-primary/80 hover:bg-bg-secondary hover:border-accent-gold/40 hover:text-accent-gold'
+                   }`}
+                   title={`Bridge is ${status}`}
+                >
+                   <span className="text-[10px] font-black tracking-wider uppercase font-sans">AR</span>
+                </button>
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-bg-secondary ${
+                   status === 'Connected' ? 'bg-accent-green animate-pulse shadow-md shadow-accent-green/20' : 'bg-accent-red'
+                }`}></div>
+             </div>
         </div>
       </header>
 
