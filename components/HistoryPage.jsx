@@ -136,14 +136,14 @@ export default function HistoryPage() {
 
                <div className="grid grid-cols-2 gap-6">
                   <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-                     <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 border-b border-white/10 pb-4">Today's Performance</h3>
+                     <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 border-b border-white/10 pb-4">Today&apos;s Performance</h3>
                      <div className="space-y-4">
                         <div className="flex justify-between items-center">
                            <span className="text-xs font-bold text-white/60">Trades Today</span>
                            <span className="text-sm font-black text-white">{dailyStats?.tradesToday || 0}</span>
                         </div>
                         <div className="flex justify-between items-center">
-                           <span className="text-xs font-bold text-white/60">Today's Win Rate</span>
+                           <span className="text-xs font-bold text-white/60">Today&apos;s Win Rate</span>
                            <span className="text-sm font-black text-accent-green">{dailyStats?.winRate || '0.0'}%</span>
                         </div>
                         <div className="flex justify-between items-center">
