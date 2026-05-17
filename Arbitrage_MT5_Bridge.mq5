@@ -651,8 +651,13 @@ void ProcessCommand(string json)
          req.symbol   = PositionGetString(POSITION_SYMBOL);
          req.sl       = NormalizeDouble(newSL, (int)SymbolInfoInteger(req.symbol, SYMBOL_DIGITS));
          req.tp       = PositionGetDouble(POSITION_TP);
-         OrderSend(req, res);
-         Print("[BRIDGE] SL Modified: Ticket=", ticket, " NewSL=", newSL);
+         
+         bool success = OrderSend(req, res);
+         if(success) {
+            Print("[BRIDGE] SL Modified successfully: Ticket=", ticket, " NewSL=", newSL);
+         } else {
+            Print("[BRIDGE] ❌ SL Modification failed: Ticket=", ticket, " Retcode=", res.retcode);
+         }
       }
    }
    else if(StringFind(json, "\"action\":\"set_symbols\"") >= 0)
