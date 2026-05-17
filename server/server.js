@@ -32,7 +32,15 @@ const { checkRiskSafety } = require('./riskGuard');
 const { getActiveSessionName } = require('./sessionFilter');
 const { getHistoryLogs, getSystemSettings } = require('./db');
 const { startSelfTrainer } = require('./selfTrainer');
-
+let cachedLeaderSymbol = 'XAUUSD';
+db.getSystemSettings().then(settings => {
+  if (settings && settings.leader_symbol) {
+    cachedLeaderSymbol = settings.leader_symbol;
+    console.log(`[SERVER] Leader symbol cached: ${cachedLeaderSymbol}`);
+  }
+}).catch(err => {
+  console.warn('[SERVER] Failed to load initial leader symbol cache:', err.message);
+});
 
 const PORT = process.env.PORT || 3001;
 const wss = new WebSocket.Server({ port: PORT });
@@ -104,7 +112,8 @@ frontendWss.on('connection', async (ws) => {
               [p.symbol, p.correlation || 'same', p.weight || 50]
             );
           }
-          console.log('[SERVER] Architecture saved to DB.');
+          cachedLeaderSymbol = msg.leader;
+          console.log('[SERVER] Architecture saved to DB and leader cached:', cachedLeaderSymbol);
         } catch (dbErr) {
           console.error('[DB ERROR] Failed to persist architecture:', dbErr.message);
         }
@@ -158,6 +167,25 @@ frontendWss.on('connection', async (ws) => {
         const { sendRiskAlert } = require('./telegramAlert');
         sendRiskAlert('EMERGENCY STOP EXECUTED', 'All positions closed via terminal manual override.');
         broadcastToFrontend({ event: 'emergency_stop_confirmed' });
+      } else if (msg.action === 'update_risk_settings') {
+        const lotSize = parseFloat(msg.lot_size) || 0.01;
+        const dailyLossLimit = parseFloat(msg.daily_loss_limit) || 50.0;
+        const maxSpread = parseFloat(msg.max_spread) || 5.0;
+        const newsBufferMins = parseInt(msg.news_buffer_mins) || 30;
+
+        const conn = await db.getDB();
+        await conn.execute(
+          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, updated_at = NOW() WHERE id = 1',
+          [lotSize, dailyLossLimit, maxSpread, newsBufferMins]
+        );
+        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}`);
+        
+        // Broadcast new settings to all connected frontend clients
+        const updatedSettings = await db.getSystemSettings();
+        broadcastToFrontend({
+          event: 'hft_analytics',
+          systemSettings: updatedSettings
+        });
       }
     } catch(e) {
       console.error('[SERVER] Frontend message error:', e.message);
@@ -216,6 +244,7 @@ let startOfDayBalance = 0;
 let lastBalanceResetDate = '';
 let cachedSymbols = null; // Store for new frontend connections
 const pendingTrades = new Map();
+const lastTradeTime = new Map(); // Track last execution timestamp per symbol to prevent race conditions
 
 // Clean up stale pending trade entries (older than 10 seconds) to prevent unbounded memory leaks
 setInterval(() => {
@@ -229,21 +258,34 @@ setInterval(() => {
   }
 }, 10000);
 
-// Run lock checker every 5 seconds
+// Run lock checker every 5 seconds with overlapping execution guard
+let isProcessingLocks = false;
 setInterval(async () => {
+  if (isProcessingLocks) return;
   if (!getActiveMT5() || !latestPositions.length) return;
   
-  await checkAndUpdateLocks(
-    latestPositions,       // From latest heartbeat
-    livePrices,            // Live bid/ask from MT5
-    getActiveMT5(),        // WebSocket to MT5
-    db,                    // MySQL connection
-    broadcastToFrontend    // Broadcast function to notify frontend
-  );
+  isProcessingLocks = true;
+  try {
+    await checkAndUpdateLocks(
+      latestPositions,       // From latest heartbeat
+      livePrices,            // Live bid/ask from MT5
+      getActiveMT5(),        // WebSocket to MT5
+      db,                    // MySQL connection
+      broadcastToFrontend    // Broadcast function to notify frontend
+    );
+  } catch (err) {
+    console.error('[SERVER] Lock update failed:', err.message);
+  } finally {
+    isProcessingLocks = false;
+  }
 }, 5000);
 
 // Broadcast HFT Analytics, Trade Stats & Gap Analytics from DB (Last 50,000 Records) every 10 seconds
+// Fixed to have overlapping execution guard to prevent MySQL database hogging / connection pool timeouts
+let isProcessingAnalytics = false;
 setInterval(async () => {
+  if (isProcessingAnalytics) return;
+  isProcessingAnalytics = true;
   try {
     const analytics = await db.getHFTAnalytics();
     const tradeStats = await db.getTradeStats();
@@ -285,6 +327,8 @@ setInterval(async () => {
     });
   } catch (e) {
     console.error('[SERVER] Analytics error:', e.message);
+  } finally {
+    isProcessingAnalytics = false;
   }
 }, 2000);
 
@@ -346,6 +390,35 @@ wss.on('connection', (ws, req) => {
   ws.send(JSON.stringify({
     action: 'get_all_symbols'
   }));
+
+  // Auto-subscribe the MT5 bridge to the configured database symbols on startup/reconnect
+  db.getSystemSettings().then(settings => {
+    if (settings) {
+      let parsedLagging = [];
+      try {
+        if (settings.lagging_symbols) {
+          if (settings.lagging_symbols.startsWith('[')) {
+            parsedLagging = JSON.parse(settings.lagging_symbols);
+          } else {
+            parsedLagging = settings.lagging_symbols.split(',').map(s => ({ symbol: s }));
+          }
+        }
+      } catch(e) {}
+      
+      const lagSyms = parsedLagging.map(p => p.symbol || p);
+      const allSymbolsToTrack = [settings.leader_symbol, ...lagSyms].filter(Boolean).join(',');
+      
+      if (allSymbolsToTrack) {
+        ws.send(JSON.stringify({
+          action: 'set_symbols',
+          symbols: allSymbolsToTrack
+        }));
+        console.log(`[SERVER] MT5 subscription auto-initialized for: ${allSymbolsToTrack}`);
+      }
+    }
+  }).catch(err => {
+    console.error('[SERVER] Failed to auto-initialize MT5 symbol tracking:', err.message);
+  });
 
   ws.on('message', async (data) => {
     try {
@@ -409,11 +482,24 @@ async function handleMT5Message(msg, ws) {
     
     onPriceTick(msg.symbol, msg.bid, msg.ask);
     
-    if (msg.symbol === 'XAUUSD') {
+    if (msg.symbol === cachedLeaderSymbol) {
       try {
         const signal = await detectSignal(livePrices, priceHistory, null, db, broadcastToFrontend);
         
         if (signal && autoScalpEnabled && signal.action === 'EXECUTE') {
+          // ── COOLDOWN SHIELD: Prevent HFT Double Execution / Race Conditions ──
+          const lastExecTime = lastTradeTime.get(cachedLeaderSymbol) || 0;
+          if (Date.now() - lastExecTime < 10000) { // 10 seconds execution cooldown per symbol
+            console.log(`[AUTO-SCALP] Cooldown active for ${cachedLeaderSymbol}. Skipping execution.`);
+            return;
+          }
+          
+          const hasPending = Array.from(pendingTrades.values()).some(t => t.symbol === cachedLeaderSymbol);
+          if (hasPending) {
+            console.log(`[AUTO-SCALP] Transaction already in progress for ${cachedLeaderSymbol}. Deferring execution.`);
+            return;
+          }
+
           const settings = await db.getSystemSettings();
           
           // ── RISK SHIELD: Dynamic Loss Limit & Daily Drawdown Block ──
@@ -431,7 +517,7 @@ async function handleMT5Message(msg, ws) {
           }
 
           // ── POSITION GUARD: Duplicate & Reversal Conflict Shield ──
-          const symbol = 'XAUUSD';
+          const symbol = cachedLeaderSymbol;
           const type = signal.type;
           
           // Check for duplicate trade (same direction)
@@ -452,7 +538,7 @@ async function handleMT5Message(msg, ws) {
           const lotSize = settings.lot_size || 0.01;
           
           console.log(`[AUTO-SCALP] Executing ${signal.type} | Volume: ${lotSize} | Score: ${signal.score}`);
-          executeTrade('XAUUSD', signal.type, lotSize, signal.sl, signal.tp);
+          executeTrade(cachedLeaderSymbol, signal.type, lotSize, signal.sl, signal.tp);
         }
       } catch (err) {
         console.error('[SERVER] Signal detection / execution error:', err.message);
@@ -595,7 +681,8 @@ function executeTrade(symbol, type, volume, sl, tp) {
     }
   }, 5000);
   
-  pendingTrades.set(id, { timeoutId, timestamp: Date.now() });
+  pendingTrades.set(id, { timeoutId, timestamp: Date.now(), symbol });
+  lastTradeTime.set(symbol, Date.now());
 
   getActiveMT5().send(JSON.stringify({
     action: 'trade',

@@ -15,15 +15,16 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     if (now - lastScoreTime < SCORE_INTERVAL) return;
     lastScoreTime = now;
 
-    const gold = livePrices['XAUUSD'];
-    if (!gold) return;
-
     // PRE-LAYER: Get System Settings with fallback recovery
     const settings = await db.getSystemSettings().catch(() => ({}));
     if (!settings || !settings.id) {
       console.warn('[SIGNAL DETECTOR] Settings not initialized in database.');
       return;
     }
+
+    const leaderSym = settings.leader_symbol || 'XAUUSD';
+    const leader = livePrices[leaderSym];
+    if (!leader) return;
 
     // Validate structure and unpack properties upfront with safe defaults
     const maxSpread = settings.max_spread || 5.0;
@@ -42,7 +43,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   }
 
   // ── LAYER 2: Spread monitor (Using dynamic DB limit) ────
-  const spread = checkSpread('XAUUSD', gold.bid, gold.ask, maxSpread);
+  const spread = checkSpread(leaderSym, leader.bid, leader.ask, maxSpread);
   if (broadcastFn) broadcastFn({ event: 'spread_status', ...spread });
 
   if (!spread.allowed) {
@@ -105,14 +106,14 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   if (!score.direction) return;
 
   // ── LAYER 3: ATR-based SL/TP ────────────────────────────
-  const sltp = getDynamicSLTP('XAUUSD', score.direction, gold.bid);
+  const sltp = getDynamicSLTP(leaderSym, score.direction, leader.bid);
   const vol  = getVolatilityLabel(sltp.atrPips);
 
   // ── Build signal object ─────────────────────────────────
   const signal = {
     id:                   require('uuid').v4(),
     type:                 score.direction,
-    goldPrice:            gold.bid,
+    goldPrice:            leader.bid,
     expectedPips:         sltp.tpPips,
     expectedDelayMinutes: getAvgLag(score.breakdown, weights),
     confidence:           (score.score / 120 * 100).toFixed(1),

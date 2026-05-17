@@ -4,6 +4,7 @@ const { getDB } = require('./db');
 /**
  * Self Trainer Engine
  * Trains price confirm parameters and lagging offsets based on past signals performance.
+ * Performs a parameter grid search to find the optimal Confidence Score (minScore) threshold.
  */
 
 async function runTraining(broadcastFn) {
@@ -21,7 +22,7 @@ async function runTraining(broadcastFn) {
     // Get all verified signals from last 7 days
     const [signals] = await conn.execute(`
       SELECT trigger_pair, expected_delay_minutes, actual_result_pips,
-             expected_move_pips, was_correct
+             expected_move_pips, was_correct, confidence_score
       FROM scalp_signals 
       WHERE was_correct IS NOT NULL 
       AND created_at > NOW() - INTERVAL 7 DAY
@@ -32,6 +33,35 @@ async function runTraining(broadcastFn) {
       return;
     }
     
+    // ── PARAMETER GRID SEARCH FOR OPTIMAL CONFIDENCE SCORE (minScore) ──
+    const minScoreGrid = [60, 65, 70, 75, 80, 85, 90, 95];
+    let bestMinScore = 85; // Default fallback
+    let bestScoreAccuracy = 0;
+    
+    console.log('[TRAINER] Running grid search optimization over confidence score threshold...');
+    for (const gridScore of minScoreGrid) {
+      const hypotheticalSignals = signals.filter(s => parseFloat(s.confidence_score) >= gridScore);
+      if (hypotheticalSignals.length >= 3) { // Minimum sample size for statistical validity
+        const correctCount = hypotheticalSignals.filter(s => s.was_correct).length;
+        const hypAccuracy = (correctCount / hypotheticalSignals.length) * 100;
+        console.log(`[TRAINER GRID] Threshold: ${gridScore}% | Accuracy: ${hypAccuracy.toFixed(1)}% | Samples: ${hypotheticalSignals.length}`);
+        
+        // Prioritize higher accuracy, or higher sample counts at equal accuracy
+        if (hypAccuracy > bestScoreAccuracy || (hypAccuracy === bestScoreAccuracy && gridScore > bestMinScore)) {
+          bestScoreAccuracy = hypAccuracy;
+          bestMinScore = gridScore;
+        }
+      }
+    }
+    
+    console.log(`[TRAINER GRID] Optimal MinScore Threshold found: ${bestMinScore}% (Accuracy: ${bestScoreAccuracy.toFixed(1)}%)`);
+    
+    // Automatically persist the optimized threshold to database system_settings
+    if (bestScoreAccuracy > 50) { // Only update if profitable/statistically superior
+      await conn.execute('UPDATE system_settings SET min_confidence = ? WHERE id = 1', [bestMinScore]);
+      console.log(`[TRAINER] System settings updated with optimal min_confidence: ${bestMinScore}%`);
+    }
+
     // Group by leader pair
     const grouped = {};
     for (const s of signals) {
@@ -66,6 +96,7 @@ async function runTraining(broadcastFn) {
       broadcastFn({ 
         event: 'training_complete', 
         timestamp: Date.now(),
+        optimalMinScore: bestMinScore,
         weights: allWeights.map(w => ({
           pair: w.pair,
           points: w.sample_count,

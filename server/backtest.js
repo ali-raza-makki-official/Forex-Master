@@ -193,7 +193,7 @@ async function runBacktest() {
       const outcome = simulateTrade(
         weekGold, i, signal.direction,
         tick.bid, tick.ask,
-        slPips, tpPips
+        slPips, tpPips, atr
       );
 
       // Month bucket
@@ -285,25 +285,65 @@ function scoreSignal(leaderMoves) {
 }
 
 // ── Helper: Simulate trade outcome ───────────────────────────
-function simulateTrade(goldData, startIdx, direction, bid, ask, slPips, tpPips) {
-  const entry   = direction === 'BUY' ? ask : bid;
-  const tp      = direction === 'BUY' ? entry + tpPips / 10 : entry - tpPips / 10;
-  const sl      = direction === 'BUY' ? entry - slPips / 10 : entry + slPips / 10;
-  const maxBars = Math.min(60, goldData.length - startIdx - 1); // max 60 ticks forward
+function simulateTrade(goldData, startIdx, direction, bid, ask, slPips, tpPips, atr) {
+  const entry = direction === 'BUY' ? ask : bid;
+  const tp    = direction === 'BUY' ? entry + tpPips / 10 : entry - tpPips / 10;
+  
+  let currentSL = direction === 'BUY' ? entry - slPips / 10 : entry + slPips / 10;
+  let slLockedAtBE = false;
 
-  for (let j = 1; j <= maxBars; j++) {
+  // Dynamic Break-Even trigger threshold in price units (0.5x ATR)
+  const slDistance = slPips / 10;
+  const beTriggerOffset = atr ? (0.5 * atr) : (slDistance / 2); // Fallback: half of SL distance
+
+  const startTime = new Date(goldData[startIdx].time).getTime();
+
+  // Iterate forward through ticks
+  for (let j = 1; startIdx + j < goldData.length; j++) {
     const future = goldData[startIdx + j];
     if (!future) break;
 
+    const futureTime = new Date(future.time).getTime();
+    
+    // Time-based exit (1 Minute = 60,000 ms limit instead of arbitrary tick counts!)
+    if (futureTime - startTime > 60000) {
+      break;
+    }
+
     if (direction === 'BUY') {
+      // 1. Check if Dynamic Break-Even trigger threshold is reached
+      if (!slLockedAtBE && future.bid >= entry + beTriggerOffset) {
+        currentSL = entry; // Lock SL exactly at entry price (Breakeven!)
+        slLockedAtBE = true;
+      }
+
+      // 2. Check if Take Profit is hit
       if (future.ask >= tp) return 'WIN';
-      if (future.bid <= sl) return 'LOSS';
+
+      // 3. Check if Stop Loss (original or breakeven-locked) is hit
+      if (future.bid <= currentSL) {
+        return slLockedAtBE ? 'BREAKEVEN' : 'LOSS';
+      }
     } else {
+      // SELL trade
+      // 1. Check if Dynamic Break-Even trigger threshold is reached
+      if (!slLockedAtBE && future.ask <= entry - beTriggerOffset) {
+        currentSL = entry; // Lock SL exactly at entry price (Breakeven!)
+        slLockedAtBE = true;
+      }
+
+      // 2. Check if Take Profit is hit
       if (future.bid <= tp) return 'WIN';
-      if (future.ask >= sl) return 'LOSS';
+
+      // 3. Check if Stop Loss (original or breakeven-locked) is hit
+      if (future.ask >= currentSL) {
+        return slLockedAtBE ? 'BREAKEVEN' : 'LOSS';
+      }
     }
   }
-  return 'BREAKEVEN'; // neither hit in time
+
+  // If time elapsed (60 seconds) without hitting TP or SL, close at BREAKEVEN
+  return 'BREAKEVEN';
 }
 
 // ── Helper: Calculate ATR from last 14 ticks ─────────────────

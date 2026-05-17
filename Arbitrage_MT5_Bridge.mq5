@@ -736,25 +736,48 @@ string ExtractJsonValue(string json, string key)
    if(idx < 0) return "";
    
    int val_idx = idx + StringLen(key);
-   // Skip spaces, colons and quotes
-   while(val_idx < StringLen(json) && (StringSubstr(json, val_idx, 1) == " " || StringSubstr(json, val_idx, 1) == ":" || StringSubstr(json, val_idx, 1) == "\""))
+   
+   // Find the colon `:` after the key
+   while(val_idx < StringLen(json) && StringSubstr(json, val_idx, 1) != ":")
    {
       val_idx++;
    }
+   if(val_idx >= StringLen(json)) return "";
+   val_idx++; // Move past colon
    
-   int end_idx = val_idx;
-   // Scan until we hit a delimiter (quote, comma, or closing curly brace)
-   while(end_idx < StringLen(json))
+   // Skip leading spaces
+   while(val_idx < StringLen(json) && StringSubstr(json, val_idx, 1) == " ")
    {
-      string char_at = StringSubstr(json, end_idx, 1);
-      if(char_at == "\"" || char_at == "," || char_at == "}")
-      {
-         break;
-      }
-      end_idx++;
+      val_idx++;
    }
+   if(val_idx >= StringLen(json)) return "";
    
-   return StringSubstr(json, val_idx, end_idx - val_idx);
+   // Check if the value is a string (starts with a quote)
+   bool is_string = (StringSubstr(json, val_idx, 1) == "\"");
+   if(is_string)
+   {
+      val_idx++; // Skip opening quote
+      int end_idx = val_idx;
+      // Scan until the closing quote, ignoring commas
+      while(end_idx < StringLen(json))
+      {
+         if(StringSubstr(json, end_idx, 1) == "\"") break;
+         end_idx++;
+      }
+      return StringSubstr(json, val_idx, end_idx - val_idx);
+   }
+   else
+   {
+      // It's a raw number or boolean, scan until comma, closing brace, or space
+      int end_idx = val_idx;
+      while(end_idx < StringLen(json))
+      {
+         string char_at = StringSubstr(json, end_idx, 1);
+         if(char_at == "," || char_at == "}" || char_at == " " || char_at == "\r" || char_at == "\n") break;
+         end_idx++;
+      }
+      return StringSubstr(json, val_idx, end_idx - val_idx);
+   }
 }
 
 //+------------------------------------------------------------------+

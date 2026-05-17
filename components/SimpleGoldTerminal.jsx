@@ -7,7 +7,16 @@ import PositionLockStatus from './PositionLockStatus';
 import NewsCountdown from './NewsCountdown';
 
 export default function SimpleGoldTerminal() {
-  const { prices, sendTradeCommand, positions, lockStates, socket, newsStatus } = useWebSocket();
+  const wsData = useWebSocket() || {};
+  const { 
+    prices = {}, 
+    sendTradeCommand = () => {}, 
+    positions = [], 
+    lockStates = {}, 
+    socket = null, 
+    newsStatus = null 
+  } = wsData;
+
   const gold = prices?.['XAUUSD'] || { bid: 0, ask: 0 };
   const [lot, setLot] = useState(0.10);
   const [slPips, setSlPips] = useState(20);

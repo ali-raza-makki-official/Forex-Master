@@ -58,36 +58,59 @@ function calculateATR(symbol, period = 14) {
   return parseFloat((trSum / period).toFixed(5));
 }
 
+function getPipMultiplier(symbol) {
+  const sym = symbol.toUpperCase();
+  if (sym.includes('JPY')) return 100;
+  if (sym.includes('XAU') || sym.includes('GOLD')) return 100; // Gold: $1 move = 100 pips / points
+  if (sym.includes('XAG') || sym.includes('SILVER')) return 100; // Silver: $1 move = 100 pips
+  if (sym.includes('US30') || sym.includes('DJI') || sym.includes('NAS') || sym.includes('SPX') || sym.includes('UK100') || sym.includes('GER30')) return 1; // Indices: $1 move = 1 pip / point
+  if (sym.includes('BTC')) return 1; // BTC: $1 move = 1 pip
+  if (sym.includes('ETH')) return 1000; // ETH: $1 move = 1000 pips
+  return 10000; // Standard FX (EURUSD, GBPUSD, etc.)
+}
+
+function getDecimalPlaces(symbol) {
+  const sym = symbol.toUpperCase();
+  if (sym.includes('JPY')) return 3;
+  if (sym.includes('US30') || sym.includes('DJI') || sym.includes('NAS') || sym.includes('SPX') || sym.includes('UK100') || sym.includes('GER30')) return 1;
+  if (sym.includes('BTC') || sym.includes('ETH') || sym.includes('XAU') || sym.includes('GOLD')) return 2;
+  if (sym.includes('XAG') || sym.includes('SILVER')) return 3;
+  return 5; // Standard FX
+}
+
 // Calculate dynamic SL/TP using ATR
 function getDynamicSLTP(symbol, signalType, currentPrice) {
   const atr = calculateATR(symbol);
   if (atr === null || atr === undefined) {
     // Fallback to fixed pips if not enough data yet
-    return getFallbackSLTP(signalType, currentPrice);
+    return getFallbackSLTP(symbol, signalType, currentPrice);
   }
 
-  // Gold-specific multipliers
-  const SL_MULT = 1.0;   // 1x ATR stop loss
-  const TP_MULT = 1.5;   // 1.5x ATR take profit (1:1.5 RR)
+  const multiplier = getPipMultiplier(symbol);
+  const decimals = getDecimalPlaces(symbol);
 
-  const slDistance = parseFloat((atr * SL_MULT).toFixed(2));
-  const tpDistance = parseFloat((atr * TP_MULT).toFixed(2));
-  const slPips     = parseFloat((slDistance * 10).toFixed(1));  // Gold pip conversion
-  const tpPips     = parseFloat((tpDistance * 10).toFixed(1));
+  // Volatility-guided ATR multipliers (1:1.5 Risk-Reward)
+  const SL_MULT = 1.0;   // 1x ATR stop loss
+  const TP_MULT = 1.5;   // 1.5x ATR take profit
+
+  const slDistance = parseFloat((atr * SL_MULT).toFixed(decimals));
+  const tpDistance = parseFloat((atr * TP_MULT).toFixed(decimals));
+  const slPips     = parseFloat((slDistance * multiplier).toFixed(1));
+  const tpPips     = parseFloat((tpDistance * multiplier).toFixed(1));
 
   let sl, tp;
   if (signalType === 'BUY') {
-    sl = parseFloat((currentPrice - slDistance).toFixed(2));
-    tp = parseFloat((currentPrice + tpDistance).toFixed(2));
+    sl = parseFloat((currentPrice - slDistance).toFixed(decimals));
+    tp = parseFloat((currentPrice + tpDistance).toFixed(decimals));
   } else {
-    sl = parseFloat((currentPrice + slDistance).toFixed(2));
-    tp = parseFloat((currentPrice - tpDistance).toFixed(2));
+    sl = parseFloat((currentPrice + slDistance).toFixed(decimals));
+    tp = parseFloat((currentPrice - tpDistance).toFixed(decimals));
   }
 
   return {
     sl, tp, slPips, tpPips,
-    atr:          parseFloat(atr.toFixed(2)),
-    atrPips:      parseFloat((atr * 10).toFixed(1)),
+    atr:          parseFloat(atr.toFixed(decimals)),
+    atrPips:      parseFloat((atr * multiplier).toFixed(1)),
     riskReward:   '1:1.5',
     source:       'ATR-14',
     isFallback:   false
@@ -95,18 +118,23 @@ function getDynamicSLTP(symbol, signalType, currentPrice) {
 }
 
 // Fallback if ATR not available (less than 15 candles collected)
-function getFallbackSLTP(signalType, currentPrice) {
-  const FIXED_SL_PIPS = 8;
-  const FIXED_TP_PIPS = 12;
-  const SL_DIST = FIXED_SL_PIPS / 10;
-  const TP_DIST = FIXED_TP_PIPS / 10;
+function getFallbackSLTP(symbol, signalType, currentPrice) {
+  const multiplier = getPipMultiplier(symbol);
+  const decimals = getDecimalPlaces(symbol);
+
+  const isGold = symbol.toUpperCase().includes('XAU') || symbol.toUpperCase().includes('GOLD');
+  const FIXED_SL_PIPS = isGold ? 8 : 10;
+  const FIXED_TP_PIPS = isGold ? 12 : 15;
+  
+  const SL_DIST = FIXED_SL_PIPS / multiplier;
+  const TP_DIST = FIXED_TP_PIPS / multiplier;
 
   const rawSL = signalType === 'BUY' ? currentPrice - SL_DIST : currentPrice + SL_DIST;
   const rawTP = signalType === 'BUY' ? currentPrice + TP_DIST : currentPrice - TP_DIST;
 
   return {
-    sl:         parseFloat(rawSL.toFixed(2)),
-    tp:         parseFloat(rawTP.toFixed(2)),
+    sl:         parseFloat(rawSL.toFixed(decimals)),
+    tp:         parseFloat(rawTP.toFixed(decimals)),
     slPips:     FIXED_SL_PIPS,
     tpPips:     FIXED_TP_PIPS,
     atr:        null,
