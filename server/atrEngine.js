@@ -91,10 +91,24 @@ function getDynamicSLTP(symbol, signalType, currentPrice) {
   const SL_MULT = 1.0;   // 1x ATR stop loss
   const TP_MULT = 1.5;   // 1.5x ATR take profit
 
-  const slDistance = parseFloat((atr * SL_MULT).toFixed(decimals));
-  const tpDistance = parseFloat((atr * TP_MULT).toFixed(decimals));
-  const slPips     = parseFloat((slDistance * multiplier).toFixed(1));
-  const tpPips     = parseFloat((tpDistance * multiplier).toFixed(1));
+  let slDistance = parseFloat((atr * SL_MULT).toFixed(decimals));
+  let tpDistance = parseFloat((atr * TP_MULT).toFixed(decimals));
+  
+  const isGold = symbol.toUpperCase().includes('XAU') || symbol.toUpperCase().includes('GOLD');
+  const minSLPips = isGold ? 150 : 10;
+  const minTPPips = isGold ? 250 : 15;
+
+  let slPips = parseFloat((slDistance * multiplier).toFixed(1));
+  let tpPips = parseFloat((tpDistance * multiplier).toFixed(1));
+
+  if (slPips < minSLPips) {
+    slPips = minSLPips;
+    slDistance = parseFloat((minSLPips / multiplier).toFixed(decimals));
+  }
+  if (tpPips < minTPPips) {
+    tpPips = minTPPips;
+    tpDistance = parseFloat((minTPPips / multiplier).toFixed(decimals));
+  }
 
   let sl, tp;
   if (signalType === 'BUY') {
@@ -121,8 +135,8 @@ function getFallbackSLTP(symbol, signalType, currentPrice) {
   const decimals = getDecimalPlaces(symbol);
 
   const isGold = symbol.toUpperCase().includes('XAU') || symbol.toUpperCase().includes('GOLD');
-  const FIXED_SL_PIPS = isGold ? 8 : 10;
-  const FIXED_TP_PIPS = isGold ? 12 : 15;
+  const FIXED_SL_PIPS = isGold ? 150 : 10;
+  const FIXED_TP_PIPS = isGold ? 250 : 15;
   
   const SL_DIST = FIXED_SL_PIPS / multiplier;
   const TP_DIST = FIXED_TP_PIPS / multiplier;
