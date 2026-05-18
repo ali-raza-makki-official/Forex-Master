@@ -80,7 +80,13 @@ async function saveTradeLog(data) {
   await conn.execute(`
     INSERT INTO trade_log (ticket, symbol, trade_type, volume, entry_price)
     VALUES (?, ?, ?, ?, ?)
-  `, [data.ticket, data.symbol, data.type, data.volume, data.price]);
+  `, [
+    data.ticket || null,
+    data.symbol || 'XAUUSD',
+    data.type || 'BUY',
+    data.volume !== undefined && data.volume !== null ? parseFloat(data.volume) : 0.01,
+    data.price !== undefined && data.price !== null ? parseFloat(data.price) : 0
+  ]);
 }
 
 async function getHFTAnalytics() {

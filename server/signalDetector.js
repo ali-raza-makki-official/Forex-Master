@@ -5,6 +5,7 @@ const { checkSpread }                 = require('./spreadMonitor');
 const { getDynamicSLTP, getVolatilityLabel } = require('./atrEngine');
 const { scoreSignal, getScoreDisplay }= require('./signalScorer');
 const { sendSignalAlert }             = require('./telegramAlert');
+const { sendWhatsAppSignalAlert }     = require('./whatsappAlert');
 const { v4: uuidv4 }                  = require('uuid');
 
 const SCORE_INTERVAL = 500; // 500ms min gap
@@ -150,6 +151,9 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
 
   // ── LAYER 5: Telegram alert ─────────────────────────────
   await sendSignalAlert(signal, sltp, score, session, db);
+
+  // ── LAYER 6: WhatsApp alert ─────────────────────────────
+  await sendWhatsAppSignalAlert(signal, sltp, score, session).catch(e => console.error("[WHATSAPP] Alert error:", e.message));
 
   // ── Broadcast to frontend ───────────────────────────────
   if (broadcastFn) broadcastFn({ event: 'new_signal', signal });

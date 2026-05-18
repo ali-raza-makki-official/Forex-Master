@@ -600,6 +600,12 @@ async function handleMT5Message(msg, ws) {
             console.log(`[RISK SHIELD] 🛡️ Trade Execution Blocked: ${risk.reason}`);
             const { sendRiskAlert } = require('./telegramAlert');
             await sendRiskAlert(risk.reason, `Balance: $${latestBalance} | StartOfDay: $${startBalance} | Limit: $${dailyLossLimit}`, db);
+            try {
+              const { sendWhatsAppRiskAlert } = require('./whatsappAlert');
+              await sendWhatsAppRiskAlert(risk.reason, `Balance: $${latestBalance} | StartOfDay: $${startBalance} | Limit: $${dailyLossLimit}`);
+            } catch (waErr) {
+              console.error('[WHATSAPP] Risk alert trigger error:', waErr.message);
+            }
             return;
           }
 
@@ -671,10 +677,11 @@ async function handleMT5Message(msg, ws) {
     broadcastToFrontend({ event: 'heartbeat', ...msg });
   }
   else if (msg.event === 'trade_response') {
+    let pending = null;
     // Clear safety timeout if transaction ID matches
     if (msg.id && pendingTrades.has(msg.id)) {
-      const entry = pendingTrades.get(msg.id);
-      const tId = entry && entry.timeoutId ? entry.timeoutId : entry;
+      pending = pendingTrades.get(msg.id);
+      const tId = pending && pending.timeoutId ? pending.timeoutId : pending;
       clearTimeout(tId);
       pendingTrades.delete(msg.id);
     }
@@ -723,6 +730,12 @@ async function handleMT5Message(msg, ws) {
             console.log(`[SERVER] Trade Log Updated (Closed - Fallback): Ticket ${msg.ticket}, Profit: ${msg.profit}`);
           }
         } else {
+          // Populate missing parameters from pending trade cache if available
+          if (pending) {
+            msg.symbol = msg.symbol || pending.symbol;
+            msg.type   = msg.type   || pending.type;
+            msg.volume = msg.volume || pending.volume;
+          }
           await saveTradeLog(msg);
           console.log(`[SERVER] Trade Log Created (Opened): Ticket ${msg.ticket}`);
         }
@@ -776,7 +789,7 @@ function executeTrade(symbol, type, volume, sl, tp) {
     }
   }, 15000);
   
-  pendingTrades.set(id, { timeoutId, timestamp: Date.now(), symbol });
+  pendingTrades.set(id, { timeoutId, timestamp: Date.now(), symbol, type, volume });
   lastTradeTime.set(symbol, Date.now());
 
   getActiveMT5().send(JSON.stringify({
