@@ -110,7 +110,7 @@ frontendWss.on('connection', async (ws) => {
     });
     const dailyPL = todayTrades.reduce((sum, t) => sum + parseFloat(t.profit || 0), 0);
     const winRate = todayTrades.length > 0 
-      ? ((todayTrades.filter(t => parseFloat(t.profit) > 0).length / todayTrades.length) * 100).toFixed(1) 
+      ? ((todayTrades.filter(t => t.outcome === 'TP' || (!t.outcome && parseFloat(t.profit) > 10.00)).length / todayTrades.length) * 100).toFixed(1) 
       : 0;
     const maxDD = Math.max(0, ...todayTrades.map(t => Math.abs(parseFloat(t.drawdown || 0))));
 
@@ -297,15 +297,41 @@ async function handleExternalClosure(pos) {
 
   try {
     const conn = await db.getDB();
+    const [trades] = await conn.execute('SELECT entry_price, trade_type, sl, tp FROM trade_log WHERE ticket = ?', [pos.id]);
+    
+    let outcome = 'SL';
+    const profit = parseFloat(pos.profit || 0);
+    const closePrice = parseFloat(pos.price || 0);
+    
+    if (profit < 0) {
+      outcome = 'SL';
+    } else {
+      let tpPrice = null;
+      if (trades && trades.length > 0 && trades[0].tp) {
+        tpPrice = parseFloat(trades[0].tp);
+      }
+      
+      if (tpPrice && Math.abs(closePrice - tpPrice) <= 0.25) {
+        outcome = 'TP';
+      } else {
+        if (!tpPrice && profit > 10.00) {
+          outcome = 'TP';
+        } else {
+          outcome = 'BE';
+        }
+      }
+    }
+
     // Mark as closed. Since we don't have the final profit yet from heartbeat (it's gone),
     // we use the last known profit if available in the 'pos' object.
     await conn.execute(`
       UPDATE trade_log 
       SET closed_at = NOW(),
           profit = ?,
-          close_price = ?
+          close_price = ?,
+          outcome = ?
       WHERE ticket = ? AND closed_at IS NULL
-    `, [pos.profit || 0, pos.price || 0, pos.id]);
+    `, [pos.profit || 0, pos.price || 0, outcome, pos.id]);
     
     broadcastToFrontend({ 
       event: 'external_close', 
@@ -436,7 +462,7 @@ setInterval(async () => {
     });
     const dailyPL = todayTrades.reduce((sum, t) => sum + parseFloat(t.profit || 0), 0);
     const winRate = todayTrades.length > 0 
-      ? ((todayTrades.filter(t => parseFloat(t.profit) > 0).length / todayTrades.length) * 100).toFixed(1) 
+      ? ((todayTrades.filter(t => t.outcome === 'TP' || (!t.outcome && parseFloat(t.profit) > 10.00)).length / todayTrades.length) * 100).toFixed(1) 
       : 0;
     const maxDD = Math.max(0, ...todayTrades.map(t => Math.abs(parseFloat(t.drawdown || 0))));
 
@@ -743,24 +769,45 @@ async function handleMT5Message(msg, ws) {
         if (msg.is_close) {
           const conn = await db.getDB();
           
-          // Fetch entry price and type to calculate precise pips gained and verify scalp signal
-          const [trades] = await conn.execute('SELECT entry_price, trade_type, signal_id FROM trade_log WHERE ticket = ?', [msg.ticket]);
+          // Fetch entry price, type, and target levels to calculate pips and dynamic outcome
+          const [trades] = await conn.execute('SELECT entry_price, trade_type, signal_id, sl, tp FROM trade_log WHERE ticket = ?', [msg.ticket]);
           if (trades && trades.length > 0) {
             const trade = trades[0];
             const entryPrice = parseFloat(trade.entry_price);
             const closePrice = parseFloat(msg.price);
+            const profit = parseFloat(msg.profit || 0);
+            
             let pipsGained = 0;
             if (entryPrice && closePrice) {
               pipsGained = trade.trade_type === 'BUY' ? (closePrice - entryPrice) * 10 : (entryPrice - closePrice) * 10;
               pipsGained = parseFloat(pipsGained.toFixed(2));
             }
             
+            // Outcome resolution matrix (Stop Loss vs Trailing SL/Break Even vs Take Profit)
+            let outcome = 'SL';
+            if (profit < 0) {
+              outcome = 'SL';
+            } else {
+              const tpPrice = trade.tp ? parseFloat(trade.tp) : null;
+              if (tpPrice && Math.abs(closePrice - tpPrice) <= 0.25) {
+                outcome = 'TP';
+              } else {
+                // If profit is positive but didn't reach the exact TP price, it hit a trailed SL, which is BE!
+                // Or if tp was not set, fallback to profit > $10.00 as TP.
+                if (!tpPrice && profit > 10.00) {
+                  outcome = 'TP';
+                } else {
+                  outcome = 'BE';
+                }
+              }
+            }
+            
             await conn.execute(`
               UPDATE trade_log 
-              SET close_price=?, profit=?, pips_gained=?, closed_at=NOW()
+              SET close_price=?, profit=?, pips_gained=?, outcome=?, closed_at=NOW()
               WHERE ticket=?
-            `, [msg.price, msg.profit || 0, pipsGained, msg.ticket]);
-            console.log(`[SERVER] Trade Log Updated (Closed): Ticket ${msg.ticket}, Profit: ${msg.profit}, Pips: ${pipsGained}`);
+            `, [msg.price, msg.profit || 0, pipsGained, outcome, msg.ticket]);
+            console.log(`[SERVER] Trade Log Updated (Closed): Ticket ${msg.ticket}, Profit: ${msg.profit}, Outcome: ${outcome}, Pips: ${pipsGained}`);
             
             // If this trade was triggered by an algorithmic signal, verify it for the self trainer
             if (trade.signal_id) {
@@ -773,12 +820,15 @@ async function handleMT5Message(msg, ws) {
             }
           } else {
             // Fallback update if entry details aren't found in trade log
+            const profit = parseFloat(msg.profit || 0);
+            const outcome = profit < 0 ? 'SL' : (profit > 10.00 ? 'TP' : 'BE');
+            
             await conn.execute(`
               UPDATE trade_log 
-              SET close_price=?, profit=?, closed_at=NOW()
+              SET close_price=?, profit=?, outcome=?, closed_at=NOW()
               WHERE ticket=?
-            `, [msg.price, msg.profit || 0, msg.ticket]);
-            console.log(`[SERVER] Trade Log Updated (Closed - Fallback): Ticket ${msg.ticket}, Profit: ${msg.profit}`);
+            `, [msg.price, msg.profit || 0, outcome, msg.ticket]);
+            console.log(`[SERVER] Trade Log Updated (Closed - Fallback): Ticket ${msg.ticket}, Profit: ${msg.profit}, Outcome: ${outcome}`);
           }
         } else {
           // Populate missing parameters from pending trade cache if available
@@ -786,9 +836,11 @@ async function handleMT5Message(msg, ws) {
             msg.symbol = msg.symbol || pending.symbol;
             msg.type   = msg.type   || pending.type;
             msg.volume = msg.volume || pending.volume;
+            msg.sl     = msg.sl     || pending.sl;
+            msg.tp     = msg.tp     || pending.tp;
           }
           await saveTradeLog(msg);
-          console.log(`[SERVER] Trade Log Created (Opened): Ticket ${msg.ticket}`);
+          console.log(`[SERVER] Trade Log Created (Opened): Ticket ${msg.ticket}, SL: ${msg.sl}, TP: ${msg.tp}`);
         }
       } catch (e) {
         console.error("DB Trade Log Error:", e.message);

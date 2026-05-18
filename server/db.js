@@ -78,14 +78,16 @@ async function saveSignal(data) {
 async function saveTradeLog(data) {
   const conn = await getDB();
   await conn.execute(`
-    INSERT INTO trade_log (ticket, symbol, trade_type, volume, entry_price)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO trade_log (ticket, symbol, trade_type, volume, entry_price, sl, tp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `, [
     data.ticket || null,
     data.symbol || 'XAUUSD',
     data.type || 'BUY',
     data.volume !== undefined && data.volume !== null ? parseFloat(data.volume) : 0.01,
-    data.price !== undefined && data.price !== null ? parseFloat(data.price) : 0
+    data.price !== undefined && data.price !== null ? parseFloat(data.price) : 0,
+    data.sl !== undefined && data.sl !== null ? parseFloat(data.sl) : null,
+    data.tp !== undefined && data.tp !== null ? parseFloat(data.tp) : null
   ]);
 }
 
@@ -152,7 +154,7 @@ async function getTradeStats() {
   // Fetch closed trade outcomes
   let closedRows = [];
   try {
-    [closedRows] = await conn.execute('SELECT profit FROM trade_log WHERE closed_at IS NOT NULL');
+    [closedRows] = await conn.execute('SELECT profit, outcome FROM trade_log WHERE closed_at IS NOT NULL');
   } catch(e) {}
 
   const closedCount = closedRows.length;
@@ -161,16 +163,22 @@ async function getTradeStats() {
   let beCount = 0;
 
   for (const trade of closedRows) {
-    const profit = parseFloat(trade.profit || 0);
-    // True Take Profit (TP) is strictly for big institutional target hits (> $10.00)
-    // Small trailed gains and minor positive exits ($0.00 to $10.00) are classified as Break Even (BE).
-    // Any negative profit (even a minor loss) is strictly a Stop Loss (SL) hit.
-    if (profit > 10.00) {
+    if (trade.outcome === 'TP') {
       tpCount++;
-    } else if (profit >= 0.00 && profit <= 10.00) {
+    } else if (trade.outcome === 'BE') {
       beCount++;
-    } else {
+    } else if (trade.outcome === 'SL') {
       slCount++;
+    } else {
+      // Fallback for legacy trades
+      const profit = parseFloat(trade.profit || 0);
+      if (profit > 10.00) {
+        tpCount++;
+      } else if (profit >= 0.00 && profit <= 10.00) {
+        beCount++;
+      } else {
+        slCount++;
+      }
     }
   }
 
@@ -178,10 +186,10 @@ async function getTradeStats() {
   let consecutiveSL = 0;
   try {
     const [lastTrades] = await conn.execute(`
-      SELECT profit FROM trade_log WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT 5
+      SELECT profit, outcome FROM trade_log WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT 5
     `);
     for (const t of lastTrades) {
-      if (t.profit !== null && parseFloat(t.profit) < 0) {
+      if (t.outcome === 'SL' || (t.outcome === undefined && t.profit !== null && parseFloat(t.profit) < 0)) {
         consecutiveSL++;
       } else {
         break; // Stop counting on the first non-loss trade
