@@ -22,6 +22,22 @@ async function getDB() {
       } catch (migrationErr) {
         console.error("[DB MIGRATION] Migration error for session_filter_enabled:", migrationErr.message);
       }
+
+      // Auto-Migration: Ensure atr_sl_mult and atr_tp_mult exist in system_settings
+      try {
+        const [slCols] = await conn.execute("SHOW COLUMNS FROM system_settings LIKE 'atr_sl_mult'");
+        if (slCols.length === 0) {
+          await conn.execute("ALTER TABLE system_settings ADD COLUMN atr_sl_mult DECIMAL(4,2) DEFAULT 1.00");
+          console.log("[DB MIGRATION] Added atr_sl_mult column to system_settings.");
+        }
+        const [tpCols] = await conn.execute("SHOW COLUMNS FROM system_settings LIKE 'atr_tp_mult'");
+        if (tpCols.length === 0) {
+          await conn.execute("ALTER TABLE system_settings ADD COLUMN atr_tp_mult DECIMAL(4,2) DEFAULT 1.50");
+          console.log("[DB MIGRATION] Added atr_tp_mult column to system_settings.");
+        }
+      } catch (migrationErr) {
+        console.error("[DB MIGRATION] Migration error for atr_sl_mult/atr_tp_mult:", migrationErr.message);
+      }
       conn.release();
     } catch (e) {
       pool = null;
@@ -78,8 +94,8 @@ async function saveSignal(data) {
 async function saveTradeLog(data) {
   const conn = await getDB();
   await conn.execute(`
-    INSERT INTO trade_log (ticket, symbol, trade_type, volume, entry_price, sl, tp)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO trade_log (ticket, symbol, trade_type, volume, entry_price, sl, tp, signal_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     data.ticket || null,
     data.symbol || 'XAUUSD',
@@ -87,7 +103,8 @@ async function saveTradeLog(data) {
     data.volume !== undefined && data.volume !== null ? parseFloat(data.volume) : 0.01,
     data.price !== undefined && data.price !== null ? parseFloat(data.price) : 0,
     data.sl !== undefined && data.sl !== null ? parseFloat(data.sl) : null,
-    data.tp !== undefined && data.tp !== null ? parseFloat(data.tp) : null
+    data.tp !== undefined && data.tp !== null ? parseFloat(data.tp) : null,
+    data.signal_id || null
   ]);
 }
 
@@ -163,22 +180,13 @@ async function getTradeStats() {
   let beCount = 0;
 
   for (const trade of closedRows) {
-    if (trade.outcome === 'TP') {
-      tpCount++;
-    } else if (trade.outcome === 'BE') {
-      beCount++;
-    } else if (trade.outcome === 'SL') {
+    const profit = parseFloat(trade.profit || 0);
+    if (profit < 0 || trade.outcome === 'SL') {
       slCount++;
+    } else if (trade.outcome === 'TP' || (trade.outcome === undefined && profit > 10.00)) {
+      tpCount++;
     } else {
-      // Fallback for legacy trades
-      const profit = parseFloat(trade.profit || 0);
-      if (profit > 10.00) {
-        tpCount++;
-      } else if (profit >= 0.00 && profit <= 10.00) {
-        beCount++;
-      } else {
-        slCount++;
-      }
+      beCount++;
     }
   }
 
@@ -235,7 +243,12 @@ async function getGapAnalytics() {
 
 async function getHistoryLogs() {
   const conn = await getDB();
-  const [rows] = await conn.execute('SELECT * FROM trade_log ORDER BY created_at DESC LIMIT 50');
+  const [rows] = await conn.execute(`
+    SELECT tl.*, ss.trigger_pair 
+    FROM trade_log tl 
+    LEFT JOIN scalp_signals ss ON tl.signal_id = ss.id 
+    ORDER BY tl.created_at DESC LIMIT 50
+  `);
   return rows;
 }
 
@@ -254,6 +267,27 @@ async function getSystemSettings() {
   return settings;
 }
 
+async function getSignalHistoryLogs() {
+  const conn = await getDB();
+  try {
+    const [rows] = await conn.execute(`
+      SELECT 
+        ss.*, 
+        tl.ticket AS executed_ticket, 
+        tl.profit AS trade_profit, 
+        tl.outcome AS trade_outcome
+      FROM scalp_signals ss
+      LEFT JOIN trade_log tl ON ss.id = tl.signal_id
+      WHERE ss.created_at >= NOW() - INTERVAL 7 DAY
+      ORDER BY ss.created_at DESC LIMIT 2000
+    `);
+    return rows;
+  } catch (err) {
+    console.error("[DB] Failed to fetch signal history logs:", err.message);
+    return [];
+  }
+}
+
 module.exports = {
   getDB,
   savePriceToDB,
@@ -264,5 +298,6 @@ module.exports = {
   getTradeStats,
   getGapAnalytics,
   getHistoryLogs,
-  getSystemSettings
+  getSystemSettings,
+  getSignalHistoryLogs
 };

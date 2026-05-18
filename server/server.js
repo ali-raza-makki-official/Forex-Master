@@ -24,13 +24,13 @@ const db = require('./db');
 const { calculateATR } = require('./atr');
 const { detectSignal } = require('./signalDetector');
 const { checkAndUpdateLocks } = require('./progressiveLock');
-const { onPriceTick } = require('./atrEngine');
+const { onPriceTick, setATRMultipliers } = require('./atrEngine');
 const { startSpreadBroadcast } = require('./spreadMonitor');
 const { initTelegram } = require('./telegramAlert');
 const { getNewsStatus } = require('./newsFilter');
 const { checkRiskSafety } = require('./riskGuard');
 const { getActiveSessionName } = require('./sessionFilter');
-const { getHistoryLogs, getSystemSettings } = require('./db');
+const { getHistoryLogs, getSystemSettings, getSignalHistoryLogs } = require('./db');
 const { startSelfTrainer } = require('./selfTrainer');
 let cachedLeaderSymbol = 'XAUUSD';
 db.getSystemSettings().then(settings => {
@@ -97,6 +97,7 @@ frontendWss.on('connection', async (ws) => {
     const systemSettings = await getSystemSettings();
     const analytics = await db.getHFTAnalytics();
     const gapStats = await db.getGapAnalytics();
+    const signalLogs = await db.getSignalHistoryLogs();
     const goldATR = await calculateATR('XAUUSD', 14);
     const startBalance = startOfDayBalance || latestBalance;
     const riskStatus = checkRiskSafety(tradeStats, latestBalance, startBalance);
@@ -124,6 +125,7 @@ frontendWss.on('connection', async (ws) => {
       riskStatus: riskStatus,
       sessionName: sessionName,
       historyLogs: historyLogs,
+      signalLogs: signalLogs,
       systemSettings: systemSettings,
       dailyStats: {
         tradesToday: todayTrades.length,
@@ -248,13 +250,19 @@ frontendWss.on('connection', async (ws) => {
         const maxSpread = parseFloat(msg.max_spread) || 5.0;
         const newsBufferMins = parseInt(msg.news_buffer_mins) || 30;
         const sessionFilterEnabled = msg.session_filter_enabled !== undefined ? (msg.session_filter_enabled ? 1 : 0) : 1;
+        const atrSLMult = parseFloat(msg.atr_sl_mult) || 1.0;
+        const atrTPMult = parseFloat(msg.atr_tp_mult) || 1.5;
 
         const conn = await db.getDB();
         await conn.execute(
-          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, session_filter_enabled = ?, updated_at = NOW() WHERE id = 1',
-          [lotSize, dailyLossLimit, maxSpread, newsBufferMins, sessionFilterEnabled]
+          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, session_filter_enabled = ?, atr_sl_mult = ?, atr_tp_mult = ?, updated_at = NOW() WHERE id = 1',
+          [lotSize, dailyLossLimit, maxSpread, newsBufferMins, sessionFilterEnabled, atrSLMult, atrTPMult]
         );
-        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}, SessionFilterEnabled=${sessionFilterEnabled}`);
+        
+        // Apply to ATR engine memory instantly
+        setATRMultipliers(atrSLMult, atrTPMult);
+        
+        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}, SessionFilterEnabled=${sessionFilterEnabled}, ATR_SL_MULT=${atrSLMult}, ATR_TP_MULT=${atrTPMult}`);
         
         // Broadcast new settings to all connected frontend clients
         const updatedSettings = await db.getSystemSettings();
@@ -297,7 +305,7 @@ async function handleExternalClosure(pos) {
 
   try {
     const conn = await db.getDB();
-    const [trades] = await conn.execute('SELECT entry_price, trade_type, sl, tp FROM trade_log WHERE ticket = ?', [pos.id]);
+    const [trades] = await conn.execute('SELECT entry_price, trade_type, sl, tp FROM trade_log WHERE ticket = ?', [ticketId]);
     
     let outcome = 'SL';
     const profit = parseFloat(pos.profit || 0);
@@ -331,16 +339,61 @@ async function handleExternalClosure(pos) {
           close_price = ?,
           outcome = ?
       WHERE ticket = ? AND closed_at IS NULL
-    `, [pos.profit || 0, pos.price || 0, outcome, pos.id]);
+    `, [pos.profit || 0, pos.price || 0, outcome, ticketId]);
     
     broadcastToFrontend({ 
       event: 'external_close', 
-      ticket: pos.id, 
+      ticket: ticketId, 
       symbol: pos.symbol,
       profit: pos.profit 
     });
   } catch (e) {
-    console.error(`[SERVER] Error handling external closure for ${pos.id}:`, e.message);
+    console.error(`[SERVER] Error handling external closure for ${ticketId}:`, e.message);
+  }
+}
+
+// Self-healing synchronization to verify database vs actual MT5 positions
+async function syncActiveTradesWithMT5(activePositions) {
+  try {
+    const conn = await db.getDB();
+    const [dbActiveTrades] = await conn.execute('SELECT ticket, symbol, entry_price, trade_type, sl, tp FROM trade_log WHERE closed_at IS NULL');
+    
+    if (dbActiveTrades.length === 0) return;
+
+    const activeTickets = new Set(activePositions.map(p => String(p.id || p.ticket)));
+
+    for (const trade of dbActiveTrades) {
+      const ticketStr = String(trade.ticket);
+      if (!activeTickets.has(ticketStr)) {
+        console.log(`[SELF-HEAL] Trade #${ticketStr} closed in MT5 but active in DB. Syncing closure...`);
+        
+        const entryPrice = parseFloat(trade.entry_price);
+        const type = trade.trade_type;
+        const vol = parseFloat(trade.volume || 0.10);
+        const leaderPrice = livePrices[trade.symbol] ? parseFloat(livePrices[trade.symbol].bid) : entryPrice;
+        
+        let pipsGained = type === 'BUY' ? (leaderPrice - entryPrice) * 100 : (entryPrice - leaderPrice) * 100;
+        let profit = pipsGained * vol;
+        
+        let outcome = 'BE';
+        if (profit < 0) outcome = 'SL';
+        else if (profit > 10.00) outcome = 'TP';
+
+        await conn.execute(`
+          UPDATE trade_log 
+          SET closed_at = NOW(),
+              profit = ?,
+              close_price = ?,
+              pips_gained = ?,
+              outcome = ?
+          WHERE ticket = ? AND closed_at IS NULL
+        `, [profit, leaderPrice, pipsGained, outcome, trade.ticket]);
+        
+        console.log(`[SELF-HEAL] Synced closure for Ticket #${ticketStr} (${outcome}, Profit: $${profit})`);
+      }
+    }
+  } catch (err) {
+    console.error('[SELF-HEAL] Error in trade synchronization:', err.message);
   }
 }
 
@@ -402,6 +455,9 @@ setInterval(async () => {
         autoScalpEnabled = dbAutoScalp;
         console.log(`[SERVER SYNC] Auto-Scalp status dynamically refreshed from DB: ${autoScalpEnabled}`);
       }
+      if (settings.atr_sl_mult !== undefined && settings.atr_tp_mult !== undefined) {
+        setATRMultipliers(settings.atr_sl_mult, settings.atr_tp_mult);
+      }
     }
   } catch (err) {
     console.error('[SERVER SYNC] Failed to sync settings from DB:', err.message);
@@ -451,6 +507,7 @@ setInterval(async () => {
     const riskStatus = checkRiskSafety(tradeStats, latestBalance, startBalance);
     const sessionName = getActiveSessionName();
     const historyLogs = await getHistoryLogs();
+    const signalLogs = await db.getSignalHistoryLogs();
     const systemSettings = await getSystemSettings();
     
     // Calculate Daily Stats
@@ -476,6 +533,7 @@ setInterval(async () => {
       riskStatus: riskStatus,
       sessionName: sessionName,
       historyLogs: historyLogs,
+      signalLogs: signalLogs,
       systemSettings: systemSettings,
       dailyStats: {
         tradesToday: todayTrades.length,
@@ -510,6 +568,7 @@ setInterval(async () => {
     } while (rowsDeleted > 0);
 
     await pool.execute('DELETE FROM trade_log WHERE created_at < NOW() - INTERVAL 90 DAY');
+    await pool.execute('DELETE FROM scalp_signals WHERE created_at < NOW() - INTERVAL 30 DAY');
     console.log('[SERVER] DB Pruning completed in non-blocking batches.');
   } catch (err) {
     console.error('[SERVER] DB Pruning error:', err.message);
@@ -708,7 +767,7 @@ async function handleMT5Message(msg, ws) {
           const lotSize = parseFloat(settings.lot_size) || 0.01;
           
           console.log(`[AUTO-SCALP] Executing ${signal.type} | Volume: ${lotSize} | Score: ${signal.score}`);
-          executeTrade(cachedLeaderSymbol, signal.type, lotSize, signal.sl, signal.tp);
+          executeTrade(cachedLeaderSymbol, signal.type, lotSize, signal.sl, signal.tp, signal.db_id);
         }
       } catch (err) {
         console.error('[SERVER] Signal detection / execution error:', err.message);
@@ -735,6 +794,9 @@ async function handleMT5Message(msg, ws) {
 
     latestPositions = newPositions;
     latestBalance   = msg.balance;
+    
+    // Self-healing synchronization between database and live MT5 positions
+    syncActiveTradesWithMT5(newPositions).catch(err => console.error('[SELF-HEAL] Sync Error:', err.message));
     
     // Implement daily balance reset for correct daily drawdown and P/L calculations
     const today = new Date().toDateString();
@@ -839,7 +901,7 @@ async function handleMT5Message(msg, ws) {
             msg.sl     = msg.sl     || pending.sl;
             msg.tp     = msg.tp     || pending.tp;
           }
-          await saveTradeLog(msg);
+          await saveTradeLog({ ...msg, signal_id: pending ? pending.signal_id : null });
           console.log(`[SERVER] Trade Log Created (Opened): Ticket ${msg.ticket}, SL: ${msg.sl}, TP: ${msg.tp}`);
         }
       } catch (e) {
@@ -854,7 +916,7 @@ async function handleMT5Message(msg, ws) {
   }
 }
 
-function executeTrade(symbol, type, volume, sl, tp) {
+function executeTrade(symbol, type, volume, sl, tp, signal_id = null) {
   // Input Validation Shield
   if (!symbol || typeof symbol !== 'string') {
     throw new Error('Invalid trade symbol: ' + symbol);
@@ -892,7 +954,7 @@ function executeTrade(symbol, type, volume, sl, tp) {
     }
   }, 15000);
   
-  pendingTrades.set(id, { timeoutId, timestamp: Date.now(), symbol, type, volume });
+  pendingTrades.set(id, { timeoutId, timestamp: Date.now(), symbol, type, volume, signal_id });
   lastTradeTime.set(symbol, Date.now());
 
   getActiveMT5().send(JSON.stringify({
@@ -920,6 +982,115 @@ function closePosition(ticket, volume = 0) {
 
 console.log(`[SERVER] MT5 WebSocket listening on ws://localhost:${PORT}`);
 console.log(`[SERVER] Frontend WebSocket listening on ws://localhost:${FRONTEND_PORT}`);
+
+// Periodic verification worker for unexecuted/ignored signals
+async function verifyUnexecutedSignals() {
+  try {
+    const conn = await db.getDB();
+    // Select unresolved signals older than 30 seconds, but not older than 12 hours
+    const [signals] = await conn.execute(`
+      SELECT id, signal_type, gold_price_at_signal, expected_move_pips, created_at
+      FROM scalp_signals
+      WHERE was_correct IS NULL
+      AND created_at < NOW() - INTERVAL 30 SECOND
+      AND created_at > NOW() - INTERVAL 12 HOUR
+    `);
+
+    if (signals.length === 0) return;
+
+    for (const sig of signals) {
+      const sigId = sig.id;
+      const type = sig.signal_type;
+      const entryPrice = parseFloat(sig.gold_price_at_signal);
+      const expectedPips = parseFloat(sig.expected_move_pips || 250);
+      
+      const multiplier = 100; // Multiplier for Gold (XAUUSD)
+      const targetMoveUsd = expectedPips / multiplier;
+      const slMoveUsd = Math.max(150, expectedPips) / multiplier; // Dynamic stop loss
+
+      const tpTarget = type === 'BUY' ? entryPrice + targetMoveUsd : entryPrice - targetMoveUsd;
+      const slTarget = type === 'BUY' ? entryPrice - slMoveUsd : entryPrice + slMoveUsd;
+
+      // Query subsequent ticks of XAUUSD
+      const [ticks] = await conn.execute(`
+        SELECT bid FROM price_data
+        WHERE symbol = 'XAUUSD'
+        AND timestamp >= ?
+        ORDER BY id ASC
+        LIMIT 1000
+      `, [sig.created_at]);
+
+      let reachedTP = false;
+      let reachedSL = false;
+      let finalPrice = entryPrice;
+
+      for (const t of ticks) {
+        const bid = parseFloat(t.bid);
+        finalPrice = bid;
+        if (type === 'BUY') {
+          if (bid >= tpTarget) {
+            reachedTP = true;
+            break;
+          }
+          if (bid <= slTarget) {
+            reachedSL = true;
+            break;
+          }
+        } else {
+          if (bid <= tpTarget) {
+            reachedTP = true;
+            break;
+          }
+          if (bid >= slTarget) {
+            reachedSL = true;
+            break;
+          }
+        }
+      }
+
+      // If we processed ticks but didn't hit strict TP/SL, and it's older than 10 minutes, evaluate based on net direction
+      const sigTime = new Date(sig.created_at).getTime();
+      const ageMins = (Date.now() - sigTime) / (60 * 1000);
+
+      let resolved = false;
+      let wasCorrect = 0;
+      let pipsGained = 0;
+
+      if (reachedTP) {
+        wasCorrect = 1;
+        pipsGained = expectedPips;
+        resolved = true;
+      } else if (reachedSL) {
+        wasCorrect = 0;
+        pipsGained = -expectedPips;
+        resolved = true;
+      } else if (ageMins >= 10 && ticks.length > 0) {
+        if (type === 'BUY') {
+          wasCorrect = finalPrice > entryPrice ? 1 : 0;
+          pipsGained = (finalPrice - entryPrice) * multiplier;
+        } else {
+          wasCorrect = finalPrice < entryPrice ? 1 : 0;
+          pipsGained = (entryPrice - finalPrice) * multiplier;
+        }
+        resolved = true;
+      }
+
+      if (resolved) {
+        await conn.execute(`
+          UPDATE scalp_signals
+          SET was_correct = ?, actual_result_pips = ?
+          WHERE id = ?
+        `, [wasCorrect, pipsGained, sigId]);
+        console.log(`[VERIFIER] 🎯 Resolved Signal #${sigId} (${type}) | Correct: ${wasCorrect} | Result: ${pipsGained.toFixed(1)} Pips`);
+      }
+    }
+  } catch (err) {
+    console.error('[VERIFIER] Error in signal verification job:', err.message);
+  }
+}
+
+// Start periodic verification checker every 10 seconds
+setInterval(verifyUnexecutedSignals, 10000);
 
 initTelegram();
 startSpreadBroadcast(livePrices, db, broadcastToFrontend);

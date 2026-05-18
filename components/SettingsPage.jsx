@@ -107,6 +107,8 @@ export default function SettingsPage() {
   const [maxSpread, setMaxSpread] = useState('5.0');
   const [newsBufferMins, setNewsBufferMins] = useState('30');
   const [sessionFilterEnabled, setSessionFilterEnabled] = useState(true);
+  const [atrSLMult, setAtrSLMult] = useState('1.00');
+  const [atrTPMult, setAtrTPMult] = useState('1.50');
 
   const [isRiskInitialized, setIsRiskInitialized] = useState(false);
   const [isLeaderInitialized, setIsLeaderInitialized] = useState(false);
@@ -121,6 +123,8 @@ export default function SettingsPage() {
       if (systemSettings.max_spread !== undefined) setMaxSpread(String(systemSettings.max_spread));
       if (systemSettings.news_buffer_mins !== undefined) setNewsBufferMins(String(systemSettings.news_buffer_mins));
       if (systemSettings.session_filter_enabled !== undefined) setSessionFilterEnabled(systemSettings.session_filter_enabled !== 0);
+      if (systemSettings.atr_sl_mult !== undefined) setAtrSLMult(String(systemSettings.atr_sl_mult));
+      if (systemSettings.atr_tp_mult !== undefined) setAtrTPMult(String(systemSettings.atr_tp_mult));
       setIsRiskInitialized(true);
       console.log('[SETTINGS] Risk states initialized from database.');
     }
@@ -185,7 +189,9 @@ export default function SettingsPage() {
         daily_loss_limit: parseFloat(dailyLossLimit) || 50.0,
         max_spread: parseFloat(maxSpread) || 5.0,
         news_buffer_mins: parseInt(newsBufferMins) || 30,
-        session_filter_enabled: sessionFilterEnabled
+        session_filter_enabled: sessionFilterEnabled,
+        atr_sl_mult: parseFloat(atrSLMult) || 1.0,
+        atr_tp_mult: parseFloat(atrTPMult) || 1.5
       }));
     }
     
@@ -203,7 +209,9 @@ export default function SettingsPage() {
                     String(dailyLossLimit) !== String(systemSettings?.daily_loss_limit || '50.00') ||
                     String(maxSpread) !== String(systemSettings?.max_spread || '5.0') ||
                     String(newsBufferMins) !== String(systemSettings?.news_buffer_mins || '30') ||
-                    sessionFilterEnabled !== (systemSettings?.session_filter_enabled !== 0);
+                    sessionFilterEnabled !== (systemSettings?.session_filter_enabled !== 0) ||
+                    String(atrSLMult) !== String(systemSettings?.atr_sl_mult || '1.00') ||
+                    String(atrTPMult) !== String(systemSettings?.atr_tp_mult || '1.50');
 
   const applyPreset = (preset) => {
     // Find matching leader in masterSymbolList
@@ -253,7 +261,7 @@ export default function SettingsPage() {
       <div className="p-6 bg-bg-secondary/40 border border-white/5 rounded-2xl space-y-4">
         <div>
           <h3 className="text-[10px] font-black text-accent-gold uppercase tracking-[0.2em]">Institutional Scalper Templates</h3>
-          <p className="text-[10px] text-text-secondary mt-1">Load optimized profiles. Symbols auto-adjust to your broker's specific naming conventions.</p>
+          <p className="text-[10px] text-text-secondary mt-1">Load optimized profiles. Symbols auto-adjust to your broker&apos;s specific naming conventions.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
           {PRESETS.map((preset) => (
@@ -315,6 +323,24 @@ export default function SettingsPage() {
               type="number" step="1" min="0" max="120"
               value={newsBufferMins}
               onChange={(e) => setNewsBufferMins(e.target.value)}
+              className="w-full h-10 bg-black/40 border border-white/10 rounded-xl px-4 text-sm font-bold text-white outline-none focus:border-accent-gold/40 transition-all animate-fade-in"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-text-secondary uppercase">Stop Loss ATR Multiplier (x)</label>
+            <input 
+              type="number" step="0.1" min="0.5" max="5.0"
+              value={atrSLMult}
+              onChange={(e) => setAtrSLMult(e.target.value)}
+              className="w-full h-10 bg-black/40 border border-white/10 rounded-xl px-4 text-sm font-bold text-white outline-none focus:border-accent-gold/40 transition-all animate-fade-in"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-text-secondary uppercase">Take Profit ATR Multiplier (x)</label>
+            <input 
+              type="number" step="0.1" min="0.5" max="10.0"
+              value={atrTPMult}
+              onChange={(e) => setAtrTPMult(e.target.value)}
               className="w-full h-10 bg-black/40 border border-white/10 rounded-xl px-4 text-sm font-bold text-white outline-none focus:border-accent-gold/40 transition-all animate-fade-in"
             />
           </div>

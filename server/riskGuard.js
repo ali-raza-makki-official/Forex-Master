@@ -4,7 +4,7 @@
  */
 
 let dailyLossLimit = 50.0; // $50 Max Daily Loss
-let maxConsecutiveSL = 3;
+let maxConsecutiveSL = parseInt(process.env.MAX_CONSECUTIVE_LOSS) || 10;
 
 function checkRiskSafety(tradeStats, currentBalance, startOfDayBalance, dailyLossLimit = 50.0) {
     let isBlocked = false;

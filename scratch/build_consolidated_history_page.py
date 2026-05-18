@@ -1,4 +1,8 @@
-'use client';
+import os
+
+file_path = r"c:\Users\Ali Raza Makki\Desktop\New folder\gold-scalper\components\HistoryPage.jsx"
+
+code = """'use client';
 import { useWebSocket } from '@/components/WebSocketProvider';
 import { useState } from 'react';
 
@@ -8,8 +12,6 @@ export default function HistoryPage() {
   const [selectedPair, setSelectedPair] = useState('ALL');
   const [activeFilters, setActiveFilters] = useState([]);
   const [activeSignalFilters, setActiveSignalFilters] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 100;
 
   const categories = [
     { id: 'trades', label: 'Trade Logs', icon: '💰' },
@@ -389,110 +391,6 @@ export default function HistoryPage() {
       return false;
     });
 
-  const paginatedLogs = filteredLogs.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-  const paginatedSignalLogs = filteredSignalLogs.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-
-  const renderPagination = (totalItems) => {
-    const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-    if (totalPages <= 1) return null;
-
-    const startIdx = (currentPage - 1) * ITEMS_PER_PAGE + 1;
-    const endIdx = Math.min(currentPage * ITEMS_PER_PAGE, totalItems);
-
-    // Dynamic list of visible page buttons
-    const pages = [];
-    const maxVisiblePages = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-    if (endPage - startPage + 1 < maxVisiblePages) {
-      startPage = Math.max(1, endPage - maxVisiblePages + 1);
-    }
-    for (let p = startPage; p <= endPage; p++) {
-      pages.push(p);
-    }
-
-    return (
-      <div className="flex items-center justify-between px-6 py-4 bg-black/20 border-t border-white/5 text-[10px] font-black uppercase tracking-wider text-text-secondary select-none animate-fade-in">
-        <div>
-          Showing <span className="text-accent-gold font-mono">{startIdx}</span> - <span className="text-accent-gold font-mono">{endIdx}</span> of <span className="text-white font-mono">{totalItems}</span> logs
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            disabled={currentPage === 1}
-            className={`px-3 py-1.5 rounded-lg border font-black transition-all ${
-              currentPage === 1
-                ? 'border-white/5 text-white/20 cursor-not-allowed'
-                : 'border-white/10 text-white hover:bg-white/5 active:scale-95'
-            }`}
-          >
-            ← Previous
-          </button>
-          
-          <div className="flex items-center gap-1">
-            {startPage > 1 && (
-              <>
-                <button
-                  onClick={() => setCurrentPage(1)}
-                  className={`w-7 h-7 rounded-lg border text-center font-mono transition-all ${
-                    currentPage === 1
-                      ? 'bg-accent-gold text-black border-accent-gold'
-                      : 'border-white/10 text-white/60 hover:bg-white/5'
-                  }`}
-                >
-                  1
-                </button>
-                {startPage > 2 && <span className="text-white/20 px-1">...</span>}
-              </>
-            )}
-
-            {pages.map(p => (
-              <button
-                key={p}
-                onClick={() => setCurrentPage(p)}
-                className={`w-7 h-7 rounded-lg border text-center font-mono transition-all ${
-                  currentPage === p
-                    ? 'bg-accent-gold text-black border-accent-gold'
-                    : 'border-white/10 text-white/60 hover:bg-white/5'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-
-            {endPage < totalPages && (
-              <>
-                {endPage < totalPages - 1 && <span className="text-white/20 px-1">...</span>}
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  className={`w-7 h-7 rounded-lg border text-center font-mono transition-all ${
-                    currentPage === totalPages
-                      ? 'bg-accent-gold text-black border-accent-gold'
-                      : 'border-white/10 text-white/60 hover:bg-white/5'
-                  }`}
-                >
-                  {totalPages}
-                </button>
-              </>
-            )}
-          </div>
-
-          <button
-            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-            disabled={currentPage === totalPages}
-            className={`px-3 py-1.5 rounded-lg border font-black transition-all ${
-              currentPage === totalPages
-                ? 'border-white/5 text-white/20 cursor-not-allowed'
-                : 'border-white/10 text-white hover:bg-white/5 active:scale-95'
-            }`}
-          >
-            Next →
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end mb-8 border-b border-white/5 pb-6">
@@ -507,10 +405,7 @@ export default function HistoryPage() {
                  <span className="text-[7px] text-white/30 uppercase font-black tracking-widest">Filter by Pair</span>
                  <select 
                     value={selectedPair}
-                    onChange={(e) => {
-                       setSelectedPair(e.target.value);
-                       setCurrentPage(1);
-                    }}
+                    onChange={(e) => setSelectedPair(e.target.value)}
                     className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] font-black text-accent-gold outline-none focus:border-accent-gold/40 transition-colors uppercase cursor-pointer"
                  >
                     {availablePairs.map(pair => (
@@ -530,7 +425,6 @@ export default function HistoryPage() {
                    // Reset filters when switching tabs
                    setActiveFilters([]);
                    setActiveSignalFilters([]);
-                   setCurrentPage(1);
                  }}
                  className={`px-6 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center gap-2 ${
                     activeCategory === cat.id 
@@ -755,10 +649,7 @@ export default function HistoryPage() {
       {activeCategory === 'trades' && (
          <div className="grid grid-cols-4 gap-6 mb-8 select-none animate-fade-in">
             <div 
-               onClick={() => {
-                  setActiveFilters([]);
-                  setCurrentPage(1);
-               }}
+               onClick={() => setActiveFilters([])}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeFilters.length === 0 
                   ? 'border-accent-gold/60 ring-1 ring-accent-gold/20' 
@@ -783,7 +674,6 @@ export default function HistoryPage() {
                   } else {
                      setActiveFilters([...activeFilters, 'TP']);
                   }
-                  setCurrentPage(1);
                }}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeFilters.includes('TP') 
@@ -807,7 +697,6 @@ export default function HistoryPage() {
                   } else {
                      setActiveFilters([...activeFilters, 'SL']);
                   }
-                  setCurrentPage(1);
                }}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeFilters.includes('SL') 
@@ -831,7 +720,6 @@ export default function HistoryPage() {
                   } else {
                      setActiveFilters([...activeFilters, 'BE']);
                   }
-                  setCurrentPage(1);
                }}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeFilters.includes('BE') 
@@ -854,10 +742,7 @@ export default function HistoryPage() {
       {activeCategory === 'signals' && (
          <div className="grid grid-cols-4 gap-6 mb-8 select-none animate-fade-in">
             <div 
-               onClick={() => {
-                  setActiveSignalFilters([]);
-                  setCurrentPage(1);
-               }}
+               onClick={() => setActiveSignalFilters([])}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeSignalFilters.length === 0 
                   ? 'border-accent-gold/60 ring-1 ring-accent-gold/20' 
@@ -882,7 +767,6 @@ export default function HistoryPage() {
                   } else {
                      setActiveSignalFilters([...activeSignalFilters, 'VALID_TRADED']);
                   }
-                  setCurrentPage(1);
                }}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeSignalFilters.includes('VALID_TRADED') 
@@ -906,7 +790,6 @@ export default function HistoryPage() {
                   } else {
                      setActiveSignalFilters([...activeSignalFilters, 'VALID_NOT_TRADED']);
                   }
-                  setCurrentPage(1);
                }}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeSignalFilters.includes('VALID_NOT_TRADED') 
@@ -930,7 +813,6 @@ export default function HistoryPage() {
                   } else {
                      setActiveSignalFilters([...activeSignalFilters, 'FALSE_SIGNALS']);
                   }
-                  setCurrentPage(1);
                }}
                className={`bg-white/5 border rounded-xl p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:bg-white/[0.08] active:scale-[0.98] ${
                   activeSignalFilters.includes('FALSE_SIGNALS') 
@@ -959,7 +841,6 @@ export default function HistoryPage() {
                       No matching trade logs found for {selectedPair}
                   </div>
               ) : (
-                  <>
                   <table className="w-full text-left border-collapse animate-fade-in">
                   <thead>
                       <tr className="bg-white/5 text-[10px] font-black text-text-secondary uppercase tracking-widest">
@@ -974,7 +855,7 @@ export default function HistoryPage() {
                       </tr>
                   </thead>
                   <tbody className="text-xs font-bold text-white/80">
-                      {paginatedLogs.map(item => (
+                      {filteredLogs.map(item => (
                       <tr key={item.ticket} className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
                           <td className="p-4 font-black text-accent-gold">{item.symbol || 'XAUUSD'}</td>
                           <td className="p-4 text-white/40">
@@ -986,11 +867,11 @@ export default function HistoryPage() {
                           <td className="p-4 font-mono">{item.close_price ? item.close_price : '—'}</td>
                           <td className={`p-4 font-mono ${
                             item.profit !== null 
-                              ? (parseFloat(item.profit) < 0 
-                                  ? 'text-accent-red' 
-                                  : (item.outcome === 'TP' || parseFloat(item.profit) > 10.00
-                                      ? 'text-accent-green' 
-                                      : 'text-accent-gold')) 
+                              ? (item.outcome === 'TP' || (!item.outcome && parseFloat(item.profit) > 10.00)
+                                  ? 'text-accent-green' 
+                                  : (item.outcome === 'BE' || (!item.outcome && parseFloat(item.profit) >= 0.00)
+                                      ? 'text-accent-gold' 
+                                      : 'text-accent-red')) 
                               : 'text-accent-blue font-black animate-pulse'
                           }`}>
                             {item.profit !== null ? `$${parseFloat(item.profit).toFixed(2)}` : '—'}
@@ -999,27 +880,23 @@ export default function HistoryPage() {
                           <span className={`px-2 py-1 rounded-md text-[9px] font-black ${
                             !item.closed_at 
                               ? 'bg-accent-blue/20 text-accent-blue animate-pulse'
-                              : (parseFloat(item.profit) < 0 
-                                  ? 'bg-accent-red/20 text-accent-red' 
-                                  : (item.outcome === 'TP' || parseFloat(item.profit) > 10.00
-                                      ? 'bg-accent-green/20 text-accent-green' 
-                                      : 'bg-accent-gold/20 text-accent-gold'))
+                              : (item.outcome === 'TP' || (!item.outcome && parseFloat(item.profit) > 10.00)
+                                  ? 'bg-accent-green/20 text-accent-green' 
+                                  : (item.outcome === 'BE' || (!item.outcome && parseFloat(item.profit) >= 0.00)
+                                      ? 'bg-accent-gold/20 text-accent-gold' 
+                                      : 'bg-accent-red/20 text-accent-red'))
                           }`}>
                               {!item.closed_at 
                                 ? 'ACTIVE' 
-                                : (parseFloat(item.profit) < 0 
-                                    ? 'SL' 
-                                    : (item.outcome 
-                                        ? item.outcome 
-                                        : (parseFloat(item.profit) > 10.00 ? 'TP' : 'BE')))}
+                                : (item.outcome 
+                                    ? item.outcome 
+                                    : (parseFloat(item.profit) > 10.00 ? 'TP' : (parseFloat(item.profit) >= 0.00 ? 'BE' : 'SL')))}
                           </span>
                           </td>
                       </tr>
                       ))}
                   </tbody>
                   </table>
-                  {renderPagination(filteredLogs.length)}
-                  </>
               )}
            </>
         )}
@@ -1031,7 +908,6 @@ export default function HistoryPage() {
                       No matching signals logs found
                   </div>
               ) : (
-                  <>
                   <table className="w-full text-left border-collapse animate-fade-in">
                   <thead>
                       <tr className="bg-white/5 text-[10px] font-black text-text-secondary uppercase tracking-widest">
@@ -1046,21 +922,12 @@ export default function HistoryPage() {
                       </tr>
                   </thead>
                   <tbody className="text-xs font-bold text-white/80">
-                      {paginatedSignalLogs.map((sig, idx) => {
+                      {filteredSignalLogs.map((sig, idx) => {
                          const status = getSignalStatus(sig);
                          let triggerBadges = [];
                          try {
                             if (sig.trigger_pair) {
-                               if (sig.trigger_pair.startsWith('[')) {
-                                  try {
-                                     triggerBadges = JSON.parse(sig.trigger_pair);
-                                  } catch (parseErr) {
-                                     const matches = sig.trigger_pair.match(/[A-Z0-9]+/g);
-                                     if (matches) triggerBadges = matches.filter(m => m !== 'undefined' && m !== 'null');
-                                  }
-                               } else {
-                                  triggerBadges = [sig.trigger_pair];
-                               }
+                               triggerBadges = sig.trigger_pair.startsWith('[') ? JSON.parse(sig.trigger_pair) : [sig.trigger_pair];
                             }
                          } catch(e) {}
                          
@@ -1100,8 +967,6 @@ export default function HistoryPage() {
                       })}
                   </tbody>
                   </table>
-                  {renderPagination(filteredSignalLogs.length)}
-                  </>
               )}
            </>
         )}
@@ -1120,3 +985,9 @@ export default function HistoryPage() {
     </div>
   );
 }
+"""
+
+with open(file_path, "w", encoding="utf-8") as f:
+    f.write(code)
+
+print("HistoryPage.jsx completely rewritten with consolidated premium layout successfully!")

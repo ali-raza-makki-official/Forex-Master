@@ -104,7 +104,6 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   const score = scoreSignal(leaderMoves, weights, minConfidence);
   if (broadcastFn) broadcastFn({ event: 'score_update', score, display: getScoreDisplay(score.score) });
 
-  if (score.action === 'IGNORE') return;
   if (!score.direction) return;
 
   // ── LAYER 3: ATR-based SL/TP ────────────────────────────
@@ -116,19 +115,19 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
     id:                   uuidv4(),
     type:                 score.direction,
     goldPrice:            leader.bid,
-    expectedPips:         sltp.tpPips,
+    expectedPips:         sltp.tpPips || 25,
     expectedDelayMinutes: getAvgLag(score.breakdown, weights),
     confidence:           (score.score / 120 * 100).toFixed(1),
     score:                score.score,
     grade:                score.grade,
     action:               score.action,
-    sl:                   sltp.sl,
-    tp:                   sltp.tp,
-    slPips:               sltp.slPips,
-    tpPips:               sltp.tpPips,
-    atr:                  sltp.atr,
-    atrPips:              sltp.atrPips,
-    volatility:           vol.label,
+    sl:                   sltp.sl || null,
+    tp:                   sltp.tp || null,
+    slPips:               sltp.slPips || 0,
+    tpPips:               sltp.tpPips || 0,
+    atr:                  sltp.atr || 0,
+    atrPips:              sltp.atrPips || 0,
+    volatility:           vol.label || 'LOW',
     spread:               spread.pips,
     session:              session.session,
     newsWarning:          session.newsWarn || null,
@@ -138,15 +137,35 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   // ── Save to DB ──────────────────────────────────────────
   try {
     const conn = await db.getDB();
-    await conn.execute(`
+    const [result] = await conn.execute(`
       INSERT INTO scalp_signals
       (signal_type, trigger_pair, gold_price_at_signal, expected_move_pips,
-       expected_delay_minutes, confidence_score, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, NOW())
-    `, [signal.type, JSON.stringify(Object.keys(score.breakdown).filter(k => score.breakdown[k].confirmed)),
-        signal.goldPrice, signal.expectedPips, signal.expectedDelayMinutes, signal.confidence]);
+       expected_delay_minutes, confidence_score, action, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+    `, [
+      signal.type, 
+      JSON.stringify(Object.keys(score.breakdown).filter(k => score.breakdown[k].confirmed)),
+      signal.goldPrice, 
+      signal.expectedPips, 
+      signal.expectedDelayMinutes, 
+      signal.confidence,
+      signal.action
+    ]);
+    
+    if (result && result.insertId) {
+      signal.db_id = result.insertId;
+    }
   } catch(e) {
     console.error("[DB] Signal save error:", e.message);
+  }
+
+  // ── Broadcast to frontend ───────────────────────────────
+  if (broadcastFn) broadcastFn({ event: 'new_signal', signal });
+
+  // ── If IGNORE, return here so we don't execute a trade or send telegram/whatsapp alerts ──
+  if (score.action === 'IGNORE') {
+    console.log(`[SIGNAL] IGNORE: Saved low-confidence signal (${signal.confidence}%) for ${signal.type} in Archive`);
+    return signal;
   }
 
   // ── LAYER 5: Telegram alert ─────────────────────────────
@@ -154,9 +173,6 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
 
   // ── LAYER 6: WhatsApp alert ─────────────────────────────
   await sendWhatsAppSignalAlert(signal, sltp, score, session).catch(e => console.error("[WHATSAPP] Alert error:", e.message));
-
-  // ── Broadcast to frontend ───────────────────────────────
-  if (broadcastFn) broadcastFn({ event: 'new_signal', signal });
 
   console.log(`[SIGNAL] ${signal.type} | Score: ${score.score} | ${score.grade} | ATR: ${sltp.atrPips !== null && sltp.atrPips !== undefined ? sltp.atrPips + ' pips' : 'Fixed/Collecting'} | Spread: ${spread.pips} pips`);
   

@@ -34,28 +34,43 @@ function scoreSignal(leaderMoves, dbWeights, minConfidencePct = 85) {
 
     let direction = null;
     
-    // Dynamic threshold: user-defined confidence level of the maximum possible points
+    // Dynamic threshold: user-defined confidence level of sessional contribution.
+    // To prevent the "dilution effect" where adding more minor lagging assets inflates the threshold and blocks trading,
+    // we base the target maximum score on the top 3 highest-weighted leaders.
+    const sortedWeights = Object.values(leaderMoves).map(d => d.weight).sort((a, b) => b - a);
+    const topWeightsSum = sortedWeights.slice(0, 3).reduce((a, b) => a + b, 0);
+    const targetBaseScore = topWeightsSum * 1.35; // Optimal target points based on top 3 main leaders
+    
     const confidenceRatio = minConfidencePct / 100;
-    const THRESHOLD = Math.max(totalMaxScore * confidenceRatio, 10);
+    const THRESHOLD = Math.max(targetBaseScore * confidenceRatio, 10);
 
-    if (buyScore >= THRESHOLD && buyScore > sellScore) {
-        direction = 'BUY';
-    } else if (sellScore >= THRESHOLD && sellScore > buyScore) {
-        direction = 'SELL';
+    const maxRawScore = Math.max(buyScore, sellScore);
+    if (maxRawScore > 0) {
+        if (buyScore > sellScore) {
+            direction = 'BUY';
+        } else if (sellScore > buyScore) {
+            direction = 'SELL';
+        }
     }
 
-    // Real-time live score tracks the highest active direction for the UI radar progress bar
-    const maxRawScore = Math.max(buyScore, sellScore);
     const safeScore = Math.max(0, Math.round(maxRawScore || 0));
     const safeThreshold = Math.max(10, Math.round(THRESHOLD || 0));
     const scoreRatio = safeThreshold > 0 ? (safeScore / safeThreshold) : 0;
-    const grade = direction ? (scoreRatio >= 1.2 ? 'A+' : 'B') : 'F';
+    
+    // An execute signal is one that meets or exceeds the threshold
+    const isAboveThreshold = direction && (
+        (direction === 'BUY' && buyScore >= THRESHOLD) ||
+        (direction === 'SELL' && sellScore >= THRESHOLD)
+    );
+
+    const grade = isAboveThreshold ? (scoreRatio >= 1.2 ? 'A+' : 'B') : 'F';
+    const action = isAboveThreshold ? 'EXECUTE' : 'IGNORE';
 
     return {
         direction,
         score: safeScore,
         threshold: safeThreshold,
-        action: (direction && grade !== 'F') ? 'EXECUTE' : 'IGNORE',
+        action: action,
         breakdown,
         grade
     };

@@ -101,8 +101,8 @@ async function runTraining(broadcastFn) {
         weights: allWeights.map(w => ({
           pair: w.pair,
           points: w.sample_count,
-          correlation: (w.avg_price_impact * 100).toFixed(0) + '%',
-          accuracy: w.accuracy_rate.toFixed(0) + '%'
+          correlation: (parseFloat(w.avg_price_impact || 0) * 100).toFixed(0) + '%',
+          accuracy: parseFloat(w.accuracy_rate || 0).toFixed(0) + '%'
         }))
       });
     }

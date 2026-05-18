@@ -5,6 +5,15 @@
 
 const candleData = {};  // { symbol: [{ open, high, low, close, time }] }
 
+let currentSLMult = 1.0;
+let currentTPMult = 1.5;
+
+function setATRMultipliers(sl, tp) {
+  if (sl !== undefined && sl !== null) currentSLMult = parseFloat(sl);
+  if (tp !== undefined && tp !== null) currentTPMult = parseFloat(tp);
+  console.log(`[ATR ENGINE] Dynamic Multipliers Updated: SL_MULT = ${currentSLMult}x, TP_MULT = ${currentTPMult}x`);
+}
+
 // New price tick aane pe candle update karo
 function onPriceTick(symbol, bid, ask) {
   const mid     = (bid + ask) / 2;
@@ -87,9 +96,9 @@ function getDynamicSLTP(symbol, signalType, currentPrice) {
   const multiplier = getPipMultiplier(symbol);
   const decimals = getDecimalPlaces(symbol);
 
-  // Volatility-guided ATR multipliers (1:1.5 Risk-Reward)
-  const SL_MULT = 1.0;   // 1x ATR stop loss
-  const TP_MULT = 1.5;   // 1.5x ATR take profit
+  // Volatility-guided ATR multipliers (dynamic from settings)
+  const SL_MULT = currentSLMult;
+  const TP_MULT = currentTPMult;
 
   let slDistance = parseFloat((atr * SL_MULT).toFixed(decimals));
   let tpDistance = parseFloat((atr * TP_MULT).toFixed(decimals));
@@ -123,7 +132,7 @@ function getDynamicSLTP(symbol, signalType, currentPrice) {
     sl, tp, slPips, tpPips,
     atr:          parseFloat(atr.toFixed(decimals)),
     atrPips:      parseFloat((atr * multiplier).toFixed(1)),
-    riskReward:   '1:1.5',
+    riskReward:   `1:${(TP_MULT / SL_MULT).toFixed(1)}`,
     source:       'ATR-14',
     isFallback:   false
   };
@@ -166,4 +175,4 @@ function getVolatilityLabel(atrPips) {
   return               { label: 'Extreme',       color: '#ff4757' };
 }
 
-module.exports = { onPriceTick, calculateATR, getDynamicSLTP, getVolatilityLabel, getPipMultiplier, getDecimalPlaces };
+module.exports = { onPriceTick, calculateATR, getDynamicSLTP, getVolatilityLabel, getPipMultiplier, getDecimalPlaces, setATRMultipliers };
