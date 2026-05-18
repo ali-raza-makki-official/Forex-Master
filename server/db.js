@@ -162,11 +162,12 @@ async function getTradeStats() {
 
   for (const trade of closedRows) {
     const profit = parseFloat(trade.profit || 0);
-    // Break Even (BE) is strictly for trades with zero or minor positive profit (up to $2.50 to cover spread/slippage)
-    // Any trade with a negative profit (even a small loss) is strictly classified as a Stop Loss (SL) hit.
-    if (profit > 2.50) {
+    // True Take Profit (TP) is strictly for big institutional target hits (> $10.00)
+    // Small trailed gains and minor positive exits ($0.00 to $10.00) are classified as Break Even (BE).
+    // Any negative profit (even a minor loss) is strictly a Stop Loss (SL) hit.
+    if (profit > 10.00) {
       tpCount++;
-    } else if (profit >= 0.00 && profit <= 2.50) {
+    } else if (profit >= 0.00 && profit <= 10.00) {
       beCount++;
     } else {
       slCount++;

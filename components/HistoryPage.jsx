@@ -96,16 +96,34 @@ export default function HistoryPage() {
                           <td className="p-4 font-mono text-white/60">#{item.ticket}</td>
                           <td className="p-4 font-mono">{item.entry_price}</td>
                           <td className="p-4 font-mono">{item.close_price ? item.close_price : '—'}</td>
-                          <td className={`p-4 font-mono ${item.profit !== null ? (parseFloat(item.profit) >= 0 ? 'text-accent-green' : 'text-accent-red') : 'text-accent-blue font-black animate-pulse'}`}>
+                          <td className={`p-4 font-mono ${
+                            item.profit !== null 
+                              ? (parseFloat(item.profit) > 10.00 
+                                  ? 'text-accent-green' 
+                                  : (parseFloat(item.profit) >= 0.00 
+                                      ? 'text-accent-gold' 
+                                      : 'text-accent-red')) 
+                              : 'text-accent-blue font-black animate-pulse'
+                          }`}>
                             {item.profit !== null ? `$${parseFloat(item.profit).toFixed(2)}` : '—'}
                           </td>
                           <td className="p-4 text-right">
                           <span className={`px-2 py-1 rounded-md text-[9px] font-black ${
-                            item.closed_at 
-                              ? (parseFloat(item.profit) > 0 ? 'bg-accent-green/20 text-accent-green' : 'bg-accent-red/20 text-accent-red') 
-                              : 'bg-accent-blue/20 text-accent-blue animate-pulse'
+                            !item.closed_at 
+                              ? 'bg-accent-blue/20 text-accent-blue animate-pulse'
+                              : (parseFloat(item.profit) > 10.00 
+                                  ? 'bg-accent-green/20 text-accent-green' 
+                                  : (parseFloat(item.profit) >= 0.00 
+                                      ? 'bg-accent-gold/20 text-accent-gold' 
+                                      : 'bg-accent-red/20 text-accent-red'))
                           }`}>
-                              {item.closed_at ? (parseFloat(item.profit) > 0 ? 'PROFIT' : 'LOSS') : 'ACTIVE'}
+                              {!item.closed_at 
+                                ? 'ACTIVE' 
+                                : (parseFloat(item.profit) > 10.00 
+                                    ? 'TP' 
+                                    : (parseFloat(item.profit) >= 0.00 
+                                        ? 'BE' 
+                                        : 'SL'))}
                           </span>
                           </td>
                       </tr>
