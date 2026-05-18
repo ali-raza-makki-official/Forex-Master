@@ -38,6 +38,17 @@ async function getDB() {
       } catch (migrationErr) {
         console.error("[DB MIGRATION] Migration error for atr_sl_mult/atr_tp_mult:", migrationErr.message);
       }
+
+      // Auto-Migration: Ensure sl_mode exists in system_settings
+      try {
+        const [modeCols] = await conn.execute("SHOW COLUMNS FROM system_settings LIKE 'sl_mode'");
+        if (modeCols.length === 0) {
+          await conn.execute("ALTER TABLE system_settings ADD COLUMN sl_mode VARCHAR(20) DEFAULT 'DYNAMIC'");
+          console.log("[DB MIGRATION] Added sl_mode column to system_settings.");
+        }
+      } catch (migrationErr) {
+        console.error("[DB MIGRATION] Migration error for sl_mode:", migrationErr.message);
+      }
       conn.release();
     } catch (e) {
       pool = null;

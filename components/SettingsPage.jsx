@@ -109,6 +109,7 @@ export default function SettingsPage() {
   const [sessionFilterEnabled, setSessionFilterEnabled] = useState(true);
   const [atrSLMult, setAtrSLMult] = useState('1.00');
   const [atrTPMult, setAtrTPMult] = useState('1.50');
+  const [slMode, setSlMode] = useState('DYNAMIC');
 
   const [isRiskInitialized, setIsRiskInitialized] = useState(false);
   const [isLeaderInitialized, setIsLeaderInitialized] = useState(false);
@@ -125,6 +126,7 @@ export default function SettingsPage() {
       if (systemSettings.session_filter_enabled !== undefined) setSessionFilterEnabled(systemSettings.session_filter_enabled !== 0);
       if (systemSettings.atr_sl_mult !== undefined) setAtrSLMult(String(systemSettings.atr_sl_mult));
       if (systemSettings.atr_tp_mult !== undefined) setAtrTPMult(String(systemSettings.atr_tp_mult));
+      if (systemSettings.sl_mode !== undefined) setSlMode(String(systemSettings.sl_mode));
       setIsRiskInitialized(true);
       console.log('[SETTINGS] Risk states initialized from database.');
     }
@@ -191,7 +193,8 @@ export default function SettingsPage() {
         news_buffer_mins: parseInt(newsBufferMins) || 30,
         session_filter_enabled: sessionFilterEnabled,
         atr_sl_mult: parseFloat(atrSLMult) || 1.0,
-        atr_tp_mult: parseFloat(atrTPMult) || 1.5
+        atr_tp_mult: parseFloat(atrTPMult) || 1.5,
+        sl_mode: slMode
       }));
     }
     
@@ -211,7 +214,8 @@ export default function SettingsPage() {
                     String(newsBufferMins) !== String(systemSettings?.news_buffer_mins || '30') ||
                     sessionFilterEnabled !== (systemSettings?.session_filter_enabled !== 0) ||
                     String(atrSLMult) !== String(systemSettings?.atr_sl_mult || '1.00') ||
-                    String(atrTPMult) !== String(systemSettings?.atr_tp_mult || '1.50');
+                    String(atrTPMult) !== String(systemSettings?.atr_tp_mult || '1.50') ||
+                    slMode !== (systemSettings?.sl_mode || 'DYNAMIC');
 
   const applyPreset = (preset) => {
     // Find matching leader in masterSymbolList
@@ -364,6 +368,61 @@ export default function SettingsPage() {
               }`}
             />
           </button>
+        </div>
+
+        {/* Stop Loss Execution Mode Selector */}
+        <div className="pt-4 border-t border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-col pr-4 max-w-xl">
+            <span className="text-[10px] font-black text-text-primary uppercase tracking-wider">Auto-Trading Mode (SL Type)</span>
+            <span className="text-[9px] text-text-secondary mt-1 min-h-[20px] transition-all">
+              {slMode === 'DYNAMIC' && '🟢 DYNAMIC (Trailing SL): Automatically moves Stop Loss to lock profits dynamically (Progressive Zone Locking). Best for big trends.'}
+              {slMode === 'STATIC' && '🔴 STATIC (Fixed SL): Stop Loss remains completely fixed at its initial entry price. Never trails. Ideal for strict backtest consistency.'}
+              {slMode === 'BREAK_EVEN' && '🔵 BREAK-EVEN LOCK: Automatically locks BE + 3 pips once trade hits +20 pips profit. No further trailing, giving trade maximum breathing room.'}
+              {slMode === 'SCALP_TRAIL' && '🟣 SCALP-TRAIL: Aggressive dynamic trailing stop that trails strictly at a tight 10 pips distance. Perfect for fast range markets.'}
+            </span>
+          </div>
+          <div className="flex flex-wrap bg-black/60 border border-white/10 rounded-xl p-1 gap-1 shrink-0 self-start md:self-center">
+            <button
+              onClick={() => setSlMode('DYNAMIC')}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all duration-200 ${
+                slMode === 'DYNAMIC' 
+                  ? 'bg-accent-gold text-black shadow-lg shadow-accent-gold/20 scale-105' 
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Dynamic
+            </button>
+            <button
+              onClick={() => setSlMode('STATIC')}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all duration-200 ${
+                slMode === 'STATIC' 
+                  ? 'bg-accent-red text-white shadow-lg shadow-accent-red/20 scale-105' 
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Static
+            </button>
+            <button
+              onClick={() => setSlMode('BREAK_EVEN')}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all duration-200 ${
+                slMode === 'BREAK_EVEN' 
+                  ? 'bg-accent-blue text-white shadow-lg shadow-accent-blue/20 scale-105' 
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Break-Even
+            </button>
+            <button
+              onClick={() => setSlMode('SCALP_TRAIL')}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all duration-200 ${
+                slMode === 'SCALP_TRAIL' 
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20 scale-105' 
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Scalp-Trail
+            </button>
+          </div>
         </div>
       </div>
 

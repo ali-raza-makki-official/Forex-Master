@@ -252,17 +252,18 @@ frontendWss.on('connection', async (ws) => {
         const sessionFilterEnabled = msg.session_filter_enabled !== undefined ? (msg.session_filter_enabled ? 1 : 0) : 1;
         const atrSLMult = parseFloat(msg.atr_sl_mult) || 1.0;
         const atrTPMult = parseFloat(msg.atr_tp_mult) || 1.5;
+        const slMode = msg.sl_mode || 'DYNAMIC';
 
         const conn = await db.getDB();
         await conn.execute(
-          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, session_filter_enabled = ?, atr_sl_mult = ?, atr_tp_mult = ?, updated_at = NOW() WHERE id = 1',
-          [lotSize, dailyLossLimit, maxSpread, newsBufferMins, sessionFilterEnabled, atrSLMult, atrTPMult]
+          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, session_filter_enabled = ?, atr_sl_mult = ?, atr_tp_mult = ?, sl_mode = ?, updated_at = NOW() WHERE id = 1',
+          [lotSize, dailyLossLimit, maxSpread, newsBufferMins, sessionFilterEnabled, atrSLMult, atrTPMult, slMode]
         );
         
         // Apply to ATR engine memory instantly
         setATRMultipliers(atrSLMult, atrTPMult);
         
-        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}, SessionFilterEnabled=${sessionFilterEnabled}, ATR_SL_MULT=${atrSLMult}, ATR_TP_MULT=${atrTPMult}`);
+        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}, SessionFilterEnabled=${sessionFilterEnabled}, ATR_SL_MULT=${atrSLMult}, ATR_TP_MULT=${atrTPMult}, SL_MODE=${slMode}`);
         
         // Broadcast new settings to all connected frontend clients
         const updatedSettings = await db.getSystemSettings();
@@ -472,6 +473,13 @@ setInterval(async () => {
   
   isProcessingLocks = true;
   try {
+    // Check if Stop Loss Mode is Static
+    const settings = await db.getSystemSettings().catch(() => ({}));
+    if (settings && settings.sl_mode === 'STATIC') {
+      isProcessingLocks = false;
+      return;
+    }
+
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Lock Checker execution timed out (4000ms)')), 4000)
     );
