@@ -108,26 +108,41 @@ export default function SettingsPage() {
   const [newsBufferMins, setNewsBufferMins] = useState('30');
   const [sessionFilterEnabled, setSessionFilterEnabled] = useState(true);
 
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isRiskInitialized, setIsRiskInitialized] = useState(false);
+  const [isLeaderInitialized, setIsLeaderInitialized] = useState(false);
+  const [isLaggingInitialized, setIsLaggingInitialized] = useState(false);
 
-  // Initialize form state EXACTLY ONCE when WebSocket / DB payload is first loaded.
-  // This prevents the 2-second background stats broadcast from wiping out user inputs!
+  // Initialize Risk Settings Form State
   useEffect(() => {
     const hasSettings = systemSettings && Object.keys(systemSettings).length > 0;
-    if (hasSettings && !isInitialized) {
+    if (hasSettings && !isRiskInitialized) {
       if (systemSettings.lot_size !== undefined) setLotSize(String(systemSettings.lot_size));
       if (systemSettings.daily_loss_limit !== undefined) setDailyLossLimit(String(systemSettings.daily_loss_limit));
       if (systemSettings.max_spread !== undefined) setMaxSpread(String(systemSettings.max_spread));
       if (systemSettings.news_buffer_mins !== undefined) setNewsBufferMins(String(systemSettings.news_buffer_mins));
       if (systemSettings.session_filter_enabled !== undefined) setSessionFilterEnabled(systemSettings.session_filter_enabled !== 0);
-      
-      if (leaderPair && leaderPair.symbol) setLeader(leaderPair.symbol);
-      if (activePairs && activePairs.length > 0) setLaggingPairs(activePairs);
-      
-      setIsInitialized(true);
-      console.log('[SETTINGS] Successfully initialized form states from database.');
+      setIsRiskInitialized(true);
+      console.log('[SETTINGS] Risk states initialized from database.');
     }
-  }, [systemSettings, leaderPair, activePairs, isInitialized]);
+  }, [systemSettings, isRiskInitialized]);
+
+  // Initialize Leader Form State
+  useEffect(() => {
+    if (leaderPair && leaderPair.symbol && !isLeaderInitialized) {
+      setLeader(leaderPair.symbol);
+      setIsLeaderInitialized(true);
+      console.log('[SETTINGS] Leader symbol initialized from database.');
+    }
+  }, [leaderPair, isLeaderInitialized]);
+
+  // Initialize Lagging Pairs Form State
+  useEffect(() => {
+    if (activePairs && activePairs.length > 0 && !isLaggingInitialized) {
+      setLaggingPairs(activePairs);
+      setIsLaggingInitialized(true);
+      console.log('[SETTINGS] Lagging pairs initialized from database.');
+    }
+  }, [activePairs, isLaggingInitialized]);
 
   // Master list of all symbols from MT5 bridge
   const masterSymbolList = allSymbols?.length > 0 ? allSymbols : Object.keys(prices || {});
@@ -175,7 +190,9 @@ export default function SettingsPage() {
     }
     
     // Allow the form to safely re-sync to the new database baseline after saving
-    setIsInitialized(false);
+    setIsRiskInitialized(false);
+    setIsLeaderInitialized(false);
+    setIsLaggingInitialized(false);
     addToast("Configuration Saved & Persisted", "success");
   };
 

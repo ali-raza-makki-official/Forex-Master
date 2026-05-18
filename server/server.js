@@ -89,6 +89,53 @@ frontendWss.on('connection', async (ws) => {
   } else {
     console.log('[SERVER] No cached symbols found for new frontend connection.');
   }
+
+  // Send current HFT analytics & settings immediately on connect to prevent UI flicker/reset
+  try {
+    const tradeStats = await db.getTradeStats();
+    const historyLogs = await getHistoryLogs();
+    const systemSettings = await getSystemSettings();
+    const analytics = await db.getHFTAnalytics();
+    const gapStats = await db.getGapAnalytics();
+    const goldATR = await calculateATR('XAUUSD', 14);
+    const startBalance = startOfDayBalance || latestBalance;
+    const riskStatus = checkRiskSafety(tradeStats, latestBalance, startBalance);
+    const sessionName = getActiveSessionName();
+
+    const today = new Date().toISOString().split('T')[0];
+    const todayTrades = historyLogs.filter(log => {
+      if (!log.closed_at) return false;
+      const dateStr = typeof log.closed_at === 'string' ? log.closed_at : new Date(log.closed_at).toISOString();
+      return dateStr.startsWith(today);
+    });
+    const dailyPL = todayTrades.reduce((sum, t) => sum + parseFloat(t.profit || 0), 0);
+    const winRate = todayTrades.length > 0 
+      ? ((todayTrades.filter(t => parseFloat(t.profit) > 0).length / todayTrades.length) * 100).toFixed(1) 
+      : 0;
+    const maxDD = Math.max(0, ...todayTrades.map(t => Math.abs(parseFloat(t.drawdown || 0))));
+
+    ws.send(JSON.stringify({ 
+      event: 'hft_analytics', 
+      data: analytics,
+      tradeStats: tradeStats,
+      gapStats: gapStats,
+      atr: goldATR,
+      newsStatus: await getNewsStatus(),
+      riskStatus: riskStatus,
+      sessionName: sessionName,
+      historyLogs: historyLogs,
+      systemSettings: systemSettings,
+      dailyStats: {
+        tradesToday: todayTrades.length,
+        winRate: winRate,
+        dailyPL: dailyPL,
+        drawdown: maxDD,
+        limitReached: todayTrades.length >= 10 || dailyPL <= -50
+      }
+    }));
+  } catch (err) {
+    console.error('[SERVER] Failed to send initial analytics sync:', err.message);
+  }
   
   // Handle messages from frontend
   ws.on('message', async (data) => {
@@ -382,7 +429,11 @@ setInterval(async () => {
     
     // Calculate Daily Stats
     const today = new Date().toISOString().split('T')[0];
-    const todayTrades = historyLogs.filter(log => log.closed_at && log.closed_at.startsWith(today));
+    const todayTrades = historyLogs.filter(log => {
+      if (!log.closed_at) return false;
+      const dateStr = typeof log.closed_at === 'string' ? log.closed_at : new Date(log.closed_at).toISOString();
+      return dateStr.startsWith(today);
+    });
     const dailyPL = todayTrades.reduce((sum, t) => sum + parseFloat(t.profit || 0), 0);
     const winRate = todayTrades.length > 0 
       ? ((todayTrades.filter(t => parseFloat(t.profit) > 0).length / todayTrades.length) * 100).toFixed(1) 

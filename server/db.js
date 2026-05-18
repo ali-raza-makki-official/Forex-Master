@@ -142,26 +142,42 @@ async function getHFTAnalytics() {
 
 async function getTradeStats() {
   const conn = await getDB();
-  // Fetch trade outcomes from the last 50,000 ticks or log entries
-  // In a real scenario, this would query a 'trade_history' table
-  // For this terminal, we'll calculate it based on the signal accuracy logged in DB
-  const [rows] = await conn.execute(`
-    SELECT 
-      COUNT(*) as total,
-      SUM(CASE WHEN confidence_score > 90 THEN 1 ELSE 0 END) as tp_hits,
-      SUM(CASE WHEN confidence_score < 30 THEN 1 ELSE 0 END) as sl_hits,
-      SUM(CASE WHEN confidence_score BETWEEN 30 AND 60 THEN 1 ELSE 0 END) as be_hits
-    FROM (SELECT confidence_score FROM scalp_signals ORDER BY id DESC LIMIT 50000) as sub
-  `);
   
-  const stats = rows[0] || { total: 0, tp_hits: 0, sl_hits: 0, be_hits: 0 };
-  const total = stats.total || 1;
+  let totalLogs = 0;
+  try {
+    const [totalRows] = await conn.execute('SELECT COUNT(*) as cnt FROM trade_log');
+    totalLogs = totalRows[0]?.cnt || 0;
+  } catch(e) {}
+
+  // Fetch closed trade outcomes
+  let closedRows = [];
+  try {
+    [closedRows] = await conn.execute('SELECT profit FROM trade_log WHERE closed_at IS NOT NULL');
+  } catch(e) {}
+
+  const closedCount = closedRows.length;
+  let tpCount = 0;
+  let slCount = 0;
+  let beCount = 0;
+
+  for (const trade of closedRows) {
+    const profit = parseFloat(trade.profit || 0);
+    // Break Even (BE) is strictly for trades with zero or minor positive profit (up to $2.50 to cover spread/slippage)
+    // Any trade with a negative profit (even a small loss) is strictly classified as a Stop Loss (SL) hit.
+    if (profit > 2.50) {
+      tpCount++;
+    } else if (profit >= 0.00 && profit <= 2.50) {
+      beCount++;
+    } else {
+      slCount++;
+    }
+  }
 
   // Calculate consecutive closed losses from the actual trade logs
   let consecutiveSL = 0;
   try {
     const [lastTrades] = await conn.execute(`
-      SELECT profit FROM trade_log WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT 3
+      SELECT profit FROM trade_log WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT 5
     `);
     for (const t of lastTrades) {
       if (t.profit !== null && parseFloat(t.profit) < 0) {
@@ -174,15 +190,17 @@ async function getTradeStats() {
     console.error('[DB] Failed to fetch consecutive closed losses:', err.message);
   }
 
+  const denominator = closedCount || 1;
+
   return {
-    totalTrades: stats.total,
-    tp: { count: stats.tp_hits, pct: ((stats.tp_hits / total) * 100).toFixed(1) },
+    totalTrades: totalLogs,
+    tp: { count: tpCount, pct: closedCount > 0 ? ((tpCount / denominator) * 100).toFixed(1) : "0.0" },
     sl: { 
-      count: stats.sl_hits, 
-      pct: ((stats.sl_hits / total) * 100).toFixed(1),
+      count: slCount, 
+      pct: closedCount > 0 ? ((slCount / denominator) * 100).toFixed(1) : "0.0",
       consecutive: consecutiveSL
     },
-    be: { count: stats.be_hits, pct: ((stats.be_hits / total) * 100).toFixed(1) }
+    be: { count: beCount, pct: closedCount > 0 ? ((beCount / denominator) * 100).toFixed(1) : "0.0" }
   };
 }
 

@@ -677,12 +677,12 @@ void ProcessCommand(string json)
       else request.type_filling = ORDER_FILLING_RETURN;
       
       // --- Dynamic Broker StopLevel Protection Cushion ---
+      double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
       double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
       int stopLevelPoints = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
       double stopLevelPrice = stopLevelPoints * point;
       if(stopLevelPrice <= 0) {
-         double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
-         double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
          double spread = ask - bid;
          stopLevelPrice = (spread > 0) ? spread * 1.5 : 10 * point;
       }
@@ -694,13 +694,13 @@ void ProcessCommand(string json)
       {
          if(sl_points > 0)
          {
-            double maxSL = request.price - stopLevelPrice;
+            double maxSL = bid - stopLevelPrice;
             request.sl = (sl_points > maxSL) ? maxSL : sl_points;
             request.sl = NormalizeDouble(request.sl, digits);
          }
          if(tp_points > 0)
          {
-            double minTP = request.price + stopLevelPrice;
+            double minTP = bid + stopLevelPrice;
             request.tp = (tp_points < minTP) ? minTP : tp_points;
             request.tp = NormalizeDouble(request.tp, digits);
          }
@@ -709,13 +709,13 @@ void ProcessCommand(string json)
       {
          if(sl_points > 0)
          {
-            double minSL = request.price + stopLevelPrice;
+            double minSL = ask + stopLevelPrice;
             request.sl = (sl_points < minSL) ? minSL : sl_points;
             request.sl = NormalizeDouble(request.sl, digits);
          }
          if(tp_points > 0)
          {
-            double maxTP = request.price - stopLevelPrice;
+            double maxTP = ask - stopLevelPrice;
             request.tp = (tp_points > maxTP) ? maxTP : tp_points;
             request.tp = NormalizeDouble(request.tp, digits);
          }
@@ -727,8 +727,18 @@ void ProcessCommand(string json)
       if(success && (result.retcode == TRADE_RETCODE_DONE || result.retcode == TRADE_RETCODE_PLACED))
       {
          double fillPrice = (result.price > 0) ? result.price : request.price;
-         reply = "{\"event\":\"trade_response\",\"id\":\"" + reqId + "\",\"success\":true,\"ticket\":" + IntegerToString(result.deal) + ",\"price\":" + DoubleToJSON(fillPrice, digits) + "}";
-         Print("[BRIDGE] ✓ Order executed successfully! Deal Ticket: ", result.deal);
+         ulong positionId = result.order; // Fallback to order ticket
+         
+         if(HistoryDealSelect(result.deal))
+         {
+            ulong dealPosId = HistoryDealGetInteger(result.deal, DEAL_POSITION_ID);
+            if(dealPosId > 0) positionId = dealPosId;
+         }
+         
+         if(positionId <= 0) positionId = result.deal;
+
+         reply = "{\"event\":\"trade_response\",\"id\":\"" + reqId + "\",\"success\":true,\"ticket\":" + IntegerToString(positionId) + ",\"price\":" + DoubleToJSON(fillPrice, digits) + "}";
+         Print("[BRIDGE] ✓ Order executed successfully! Position Ticket: ", positionId, ", Deal Ticket: ", result.deal);
       }
       else
       {

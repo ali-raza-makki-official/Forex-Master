@@ -89,17 +89,23 @@ export default function HistoryPage() {
                       {filteredLogs.map(item => (
                       <tr key={item.ticket} className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
                           <td className="p-4 font-black text-accent-gold">{item.symbol || 'XAUUSD'}</td>
-                          <td className="p-4 text-white/40">{new Date(item.closed_at).toLocaleString()}</td>
+                          <td className="p-4 text-white/40">
+                            {item.closed_at ? new Date(item.closed_at).toLocaleString() : 'ACTIVE'}
+                          </td>
                           <td className={`p-4 ${item.trade_type === 'BUY' ? 'text-accent-green' : 'text-accent-red'}`}>{item.trade_type}</td>
                           <td className="p-4 font-mono text-white/60">#{item.ticket}</td>
                           <td className="p-4 font-mono">{item.entry_price}</td>
-                          <td className="p-4 font-mono">{item.close_price}</td>
-                          <td className={`p-4 font-mono ${item.profit >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
-                          ${parseFloat(item.profit).toFixed(2)}
+                          <td className="p-4 font-mono">{item.close_price ? item.close_price : '—'}</td>
+                          <td className={`p-4 font-mono ${item.profit !== null ? (parseFloat(item.profit) >= 0 ? 'text-accent-green' : 'text-accent-red') : 'text-accent-blue font-black animate-pulse'}`}>
+                            {item.profit !== null ? `$${parseFloat(item.profit).toFixed(2)}` : '—'}
                           </td>
                           <td className="p-4 text-right">
-                          <span className={`px-2 py-1 rounded-md text-[9px] font-black ${item.profit > 0 ? 'bg-accent-green/20 text-accent-green' : 'bg-accent-red/20 text-accent-red'}`}>
-                              {item.profit > 0 ? 'PROFIT' : 'LOSS'}
+                          <span className={`px-2 py-1 rounded-md text-[9px] font-black ${
+                            item.closed_at 
+                              ? (parseFloat(item.profit) > 0 ? 'bg-accent-green/20 text-accent-green' : 'bg-accent-red/20 text-accent-red') 
+                              : 'bg-accent-blue/20 text-accent-blue animate-pulse'
+                          }`}>
+                              {item.closed_at ? (parseFloat(item.profit) > 0 ? 'PROFIT' : 'LOSS') : 'ACTIVE'}
                           </span>
                           </td>
                       </tr>
