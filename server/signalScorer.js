@@ -33,7 +33,6 @@ function scoreSignal(leaderMoves, dbWeights, minConfidencePct = 85) {
     }
 
     let direction = null;
-    let finalScore = 0;
     
     // Dynamic threshold: user-defined confidence level of the maximum possible points
     const confidenceRatio = minConfidencePct / 100;
@@ -41,16 +40,16 @@ function scoreSignal(leaderMoves, dbWeights, minConfidencePct = 85) {
 
     if (buyScore >= THRESHOLD && buyScore > sellScore) {
         direction = 'BUY';
-        finalScore = buyScore;
     } else if (sellScore >= THRESHOLD && sellScore > buyScore) {
         direction = 'SELL';
-        finalScore = sellScore;
     }
 
-    const safeScore = Math.max(0, Math.round(finalScore || 0));
+    // Real-time live score tracks the highest active direction for the UI radar progress bar
+    const maxRawScore = Math.max(buyScore, sellScore);
+    const safeScore = Math.max(0, Math.round(maxRawScore || 0));
     const safeThreshold = Math.max(10, Math.round(THRESHOLD || 0));
     const scoreRatio = safeThreshold > 0 ? (safeScore / safeThreshold) : 0;
-    const grade = scoreRatio >= 1.0 ? (scoreRatio >= 1.2 ? 'A+' : 'B') : 'F';
+    const grade = direction ? (scoreRatio >= 1.2 ? 'A+' : 'B') : 'F';
 
     return {
         direction,

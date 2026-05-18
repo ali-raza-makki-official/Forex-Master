@@ -200,13 +200,14 @@ frontendWss.on('connection', async (ws) => {
         const dailyLossLimit = parseFloat(msg.daily_loss_limit) || 50.0;
         const maxSpread = parseFloat(msg.max_spread) || 5.0;
         const newsBufferMins = parseInt(msg.news_buffer_mins) || 30;
+        const sessionFilterEnabled = msg.session_filter_enabled !== undefined ? (msg.session_filter_enabled ? 1 : 0) : 1;
 
         const conn = await db.getDB();
         await conn.execute(
-          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, updated_at = NOW() WHERE id = 1',
-          [lotSize, dailyLossLimit, maxSpread, newsBufferMins]
+          'UPDATE system_settings SET lot_size = ?, daily_loss_limit = ?, max_spread = ?, news_buffer_mins = ?, session_filter_enabled = ?, updated_at = NOW() WHERE id = 1',
+          [lotSize, dailyLossLimit, maxSpread, newsBufferMins, sessionFilterEnabled]
         );
-        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}`);
+        console.log(`[SERVER] Risk settings updated: Lot=${lotSize}, Limit=${dailyLossLimit}, Spread=${maxSpread}, NewsBuffer=${newsBufferMins}, SessionFilterEnabled=${sessionFilterEnabled}`);
         
         // Broadcast new settings to all connected frontend clients
         const updatedSettings = await db.getSystemSettings();
@@ -590,7 +591,7 @@ async function handleMT5Message(msg, ws) {
           
           // ── RISK SHIELD: Dynamic Loss Limit & Daily Drawdown Block ──
           const tradeStats = await db.getTradeStats();
-          const dailyLossLimit = settings.daily_loss_limit || 50.0;
+          const dailyLossLimit = parseFloat(settings.daily_loss_limit) || 50.0;
           const startBalance = startOfDayBalance || latestBalance;
           
           const risk = checkRiskSafety(tradeStats, latestBalance, startBalance, dailyLossLimit);
@@ -621,7 +622,7 @@ async function handleMT5Message(msg, ws) {
             return; // Don't execute the opposite trade in this tick, wait for next heartbeat cycle
           }
 
-          const lotSize = settings.lot_size || 0.01;
+          const lotSize = parseFloat(settings.lot_size) || 0.01;
           
           console.log(`[AUTO-SCALP] Executing ${signal.type} | Volume: ${lotSize} | Score: ${signal.score}`);
           executeTrade(cachedLeaderSymbol, signal.type, lotSize, signal.sl, signal.tp);

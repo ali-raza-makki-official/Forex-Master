@@ -30,10 +30,19 @@ async function getSessionStatus() {
     else if (hour >= 15 && hour < 21) session = "NEW YORK";
 
     const news = await getNewsStatus();
+    const { getSystemSettings } = require('./db');
+    const settings = await getSystemSettings().catch(() => ({}));
+    const isFilterEnabled = settings.session_filter_enabled !== 0; // True if enabled or undefined
+
+    const active = isFilterEnabled ? isSessionActive() : true;
+    const reason = !active 
+        ? `Outside session hours (ASIAN / QUIET)` 
+        : (news.isActive ? `High-Impact news active: ${news.event}` : null);
     
     return {
-        session,
-        allowed: isSessionActive() && !news.isActive,
+        session: isFilterEnabled ? session : `${session} (FILTER DISABLED)`,
+        allowed: active && !news.isActive,
+        reason,
         nextNewsMs: news.nextNewsMs,
         nextNewsName: news.nextNewsName,
         isNewsActive: news.isActive,

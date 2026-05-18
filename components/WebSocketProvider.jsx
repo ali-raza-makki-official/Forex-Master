@@ -23,6 +23,7 @@ export function WebSocketProvider({ children }) {
   const [newsStatus, setNewsStatus] = useState(null);
   const [dailyStats, setDailyStats] = useState(null);
   const [allSymbols, setAllSymbols] = useState([]); // List of all available symbols in MT5
+  const [liveScore, setLiveScore] = useState(null); // Real-time backend divergence score tracker
   
   // GLOBAL PAIR CONFIGURATION (Purged defaults per user request)
   const [activePairs, setActivePairs] = useState([]);
@@ -115,6 +116,8 @@ export function WebSocketProvider({ children }) {
           }
           if (msg.newsStatus) setNewsStatus(msg.newsStatus);
           if (msg.dailyStats) setDailyStats(msg.dailyStats);
+        } else if (msg.event === 'score_update') {
+          setLiveScore(msg.score);
         } else if (msg.event === 'emergency_stop_confirmed') {
           addToast('🛑 EMERGENCY STOP EXECUTED — All systems paused', "error");
         } else if (msg.event === 'training_complete') {
@@ -191,7 +194,7 @@ export function WebSocketProvider({ children }) {
     <WebSocketContext.Provider value={{ 
         ws, socket: ws, prices, signals, status, positions, balance, equity, 
         hftAnalytics, tradeStats, gapStats, atr, historyLogs, systemSettings, newsStatus, dailyStats,
-        lockStates, activePairs, setActivePairs, leaderPair, setLeaderPair, allSymbols, sendTradeCommand 
+        lockStates, activePairs, setActivePairs, leaderPair, setLeaderPair, allSymbols, liveScore, sendTradeCommand 
       }}>
       {children}
     </WebSocketContext.Provider>

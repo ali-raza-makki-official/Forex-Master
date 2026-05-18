@@ -154,7 +154,7 @@ async function detectSignal(livePrices, priceHistory, dbWeights, db, broadcastFn
   // ── Broadcast to frontend ───────────────────────────────
   if (broadcastFn) broadcastFn({ event: 'new_signal', signal });
 
-  console.log(`[SIGNAL] ${signal.type} | Score: ${score.score} | ${score.grade} | ATR: ${sltp.atrPips} pips | Spread: ${spread.pips} pips`);
+  console.log(`[SIGNAL] ${signal.type} | Score: ${score.score} | ${score.grade} | ATR: ${sltp.atrPips !== null && sltp.atrPips !== undefined ? sltp.atrPips + ' pips' : 'Fixed/Collecting'} | Spread: ${spread.pips} pips`);
   
     return signal;
   } catch (e) {

@@ -17,7 +17,7 @@ const PRESETS = [
       { symbol: 'DXY', correlation: 'inverse', weight: 95 },
       { symbol: 'USTEC', correlation: 'same', weight: 75 },
       { symbol: 'US10Y', correlation: 'inverse', weight: 70 },
-      { symbol: 'SPX500', correlation: 'same', weight: 60 },
+      { symbol: 'US500', correlation: 'same', weight: 60 },
       { symbol: 'GBPUSD', correlation: 'same', weight: 50 }
     ],
     risk: { lotSize: '0.10', dailyLossLimit: '250.00', maxSpread: '4.0', newsBufferMins: '15' }
@@ -41,8 +41,8 @@ const PRESETS = [
     icon: '📈',
     leader: 'US30',
     lagging: [
-      { symbol: 'SPX500', correlation: 'same', weight: 80 },
-      { symbol: 'NAS100', correlation: 'same', weight: 70 },
+      { symbol: 'US500', correlation: 'same', weight: 80 },
+      { symbol: 'USTEC', correlation: 'same', weight: 70 },
       { symbol: 'DXY', correlation: 'inverse', weight: 50 }
     ],
     risk: { lotSize: '0.10', dailyLossLimit: '200.00', maxSpread: '4.0', newsBufferMins: '15' }
@@ -69,7 +69,7 @@ const PRESETS = [
     lagging: [
       { symbol: 'ETHUSD', correlation: 'same', weight: 80 },
       { symbol: 'DXY', correlation: 'inverse', weight: 50 },
-      { symbol: 'SPX500', correlation: 'same', weight: 60 }
+      { symbol: 'US500', correlation: 'same', weight: 60 }
     ],
     risk: { lotSize: '0.02', dailyLossLimit: '150.00', maxSpread: '25.0', newsBufferMins: '10' }
   }
@@ -106,6 +106,7 @@ export default function SettingsPage() {
   const [dailyLossLimit, setDailyLossLimit] = useState('50.00');
   const [maxSpread, setMaxSpread] = useState('5.0');
   const [newsBufferMins, setNewsBufferMins] = useState('30');
+  const [sessionFilterEnabled, setSessionFilterEnabled] = useState(true);
 
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -118,6 +119,7 @@ export default function SettingsPage() {
       if (systemSettings.daily_loss_limit !== undefined) setDailyLossLimit(String(systemSettings.daily_loss_limit));
       if (systemSettings.max_spread !== undefined) setMaxSpread(String(systemSettings.max_spread));
       if (systemSettings.news_buffer_mins !== undefined) setNewsBufferMins(String(systemSettings.news_buffer_mins));
+      if (systemSettings.session_filter_enabled !== undefined) setSessionFilterEnabled(systemSettings.session_filter_enabled !== 0);
       
       if (leaderPair && leaderPair.symbol) setLeader(leaderPair.symbol);
       if (activePairs && activePairs.length > 0) setLaggingPairs(activePairs);
@@ -167,7 +169,8 @@ export default function SettingsPage() {
         lot_size: parseFloat(lotSize) || 0.01,
         daily_loss_limit: parseFloat(dailyLossLimit) || 50.0,
         max_spread: parseFloat(maxSpread) || 5.0,
-        news_buffer_mins: parseInt(newsBufferMins) || 30
+        news_buffer_mins: parseInt(newsBufferMins) || 30,
+        session_filter_enabled: sessionFilterEnabled
       }));
     }
     
@@ -182,7 +185,8 @@ export default function SettingsPage() {
                     String(lotSize) !== String(systemSettings?.lot_size || '0.01') ||
                     String(dailyLossLimit) !== String(systemSettings?.daily_loss_limit || '50.00') ||
                     String(maxSpread) !== String(systemSettings?.max_spread || '5.0') ||
-                    String(newsBufferMins) !== String(systemSettings?.news_buffer_mins || '30');
+                    String(newsBufferMins) !== String(systemSettings?.news_buffer_mins || '30') ||
+                    sessionFilterEnabled !== (systemSettings?.session_filter_enabled !== 0);
 
   const applyPreset = (preset) => {
     // Find matching leader in masterSymbolList
@@ -297,6 +301,26 @@ export default function SettingsPage() {
               className="w-full h-10 bg-black/40 border border-white/10 rounded-xl px-4 text-sm font-bold text-white outline-none focus:border-accent-gold/40 transition-all animate-fade-in"
             />
           </div>
+        </div>
+
+        {/* Session Hours Filter Toggle */}
+        <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-text-primary uppercase tracking-wider">Session Hours Filter</span>
+            <span className="text-[9px] text-text-secondary mt-1">If enabled, trading will be restricted to high-liquidity London/New York sessions. Turn OFF to trade 24/7.</span>
+          </div>
+          <button
+            onClick={() => setSessionFilterEnabled(!sessionFilterEnabled)}
+            className={`w-14 h-7 rounded-full p-1 transition-all duration-300 ${
+              sessionFilterEnabled ? 'bg-accent-gold' : 'bg-white/10'
+            }`}
+          >
+            <div
+              className={`w-5 h-5 rounded-full bg-black transition-all duration-300 transform ${
+                sessionFilterEnabled ? 'translate-x-7' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
       </div>
 

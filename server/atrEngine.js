@@ -136,6 +136,7 @@ function getFallbackSLTP(symbol, signalType, currentPrice) {
     slPips:     FIXED_SL_PIPS,
     tpPips:     FIXED_TP_PIPS,
     atr:        null,
+    atrPips:    null,
     riskReward: '1:1.5',
     source:     'Fixed (ATR collecting...)',
     isFallback: true

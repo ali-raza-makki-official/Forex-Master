@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import HFTIndicator from '@/components/HFTIndicator';
 
 export default function LeadLagCanvas() {
-   const { prices, hftAnalytics, tradeStats, gapStats, atr, activePairs, leaderPair, signals } = useWebSocket();
+   const { prices, hftAnalytics, tradeStats, gapStats, atr, activePairs, leaderPair, signals, liveScore, systemSettings } = useWebSocket();
+   const VISUAL_THRESHOLD = 0.015; // Premium visual noise filter to stabilize signals during quiet hours
    const [isClient, setIsClient] = useState(false);
    const [spreadData, setSpreadData] = useState({ pips: 0, isSafe: true });
 
@@ -97,23 +98,43 @@ export default function LeadLagCanvas() {
    const benchmarkSymbol = primaryAsset?.symbol;
    const benchmarkPrice = benchmarkSymbol ? getLivePrice(benchmarkSymbol) : 0;
 
+   // 1. Dynamic rolling ratio tracking for the primary benchmark asset
+   const benchmarkHistory = (benchmarkSymbol && ratioHistories && ratioHistories[benchmarkSymbol]) || [];
+   const benchmarkAvgRatio = benchmarkHistory.length > 0 ? benchmarkHistory.reduce((s, r) => s + r, 0) / benchmarkHistory.length : 0;
+   const benchmarkCurrentRatio = goldPrice > 0 && benchmarkPrice > 0 ? benchmarkPrice / goldPrice : 0;
+
+   // 2. Compute dynamic expected gold price & absolute deviation
    let multiplier = 45;
-   if (benchmarkSymbol && benchmarkSymbol !== 'DXY' && benchmarkPrice > 0 && goldPrice > 0) {
-       multiplier = goldPrice / benchmarkPrice;
+   if (benchmarkAvgRatio > 0) {
+      multiplier = 1 / benchmarkAvgRatio;
+   } else if (benchmarkPrice > 0 && goldPrice > 0) {
+      multiplier = goldPrice / benchmarkPrice;
    }
 
-   const realDiff = benchmarkPrice > 0 && goldPrice > 0 ? Math.abs(goldPrice - (benchmarkPrice * multiplier)) : null;
-   const avgDiff = gapStats?.avgDiff ? parseFloat(gapStats.avgDiff) : null;
+   const expectedGoldPrice = benchmarkPrice * multiplier;
+   const realDiff = benchmarkPrice > 0 && goldPrice > 0 ? Math.abs(goldPrice - expectedGoldPrice) : null;
+
+   // 3. Compute dynamic gap percentage (just like the other driver cards)
+   const benchmarkGap = benchmarkAvgRatio > 0 ? ((benchmarkCurrentRatio - benchmarkAvgRatio) / benchmarkAvgRatio) * 100 : 0;
+
+   // Use database standard deviation if available, or fall back to 0.05% of Gold price (highly accurate standard threshold)
+   const avgDiff = gapStats?.avgDiff 
+      ? (parseFloat(gapStats.avgDiff) * (benchmarkSymbol === 'DXY' ? 45 : 1)) 
+      : (goldPrice > 0 ? goldPrice * 0.0005 : 1.50);
 
    let indicatorColor = 'bg-white/5';
    let indicatorLabel = 'SCAN';
-   if (realDiff !== null && avgDiff !== null) {
-      if (realDiff > avgDiff * 1.5) {
-         indicatorColor = 'bg-green-500';
-         indicatorLabel = 'BUY';
-      } else if (realDiff < avgDiff * 0.5) {
-         indicatorColor = 'bg-red-500';
-         indicatorLabel = 'SELL';
+
+   if (benchmarkGap !== 0) {
+      const isInverse = primaryAsset?.correlation === 'inverse';
+      if (Math.abs(benchmarkGap) > VISUAL_THRESHOLD) {
+         if (benchmarkGap > 0) {
+            indicatorColor = isInverse ? 'bg-red-500' : 'bg-green-500';
+            indicatorLabel = isInverse ? 'SELL' : 'BUY';
+         } else {
+            indicatorColor = isInverse ? 'bg-green-500' : 'bg-red-500';
+            indicatorLabel = isInverse ? 'BUY' : 'SELL';
+         }
       } else {
          indicatorColor = 'bg-yellow-500';
          indicatorLabel = 'WAIT';
@@ -122,8 +143,8 @@ export default function LeadLagCanvas() {
 
    // ATR based dynamic SL/TP levels
    const currentATR = atr;
-   const tpLevel = (goldPrice > 0 && currentATR) ? (goldPrice + currentATR * 1.5).toFixed(2) : '---';
-   const slLevel = (goldPrice > 0 && currentATR) ? (goldPrice - currentATR * 1.0).toFixed(2) : '---';
+   const tpLevel = (goldPrice > 0 && currentATR) ? (goldPrice + currentATR * 1.5).toFixed(3) : '---';
+   const slLevel = (goldPrice > 0 && currentATR) ? (goldPrice - currentATR * 1.0).toFixed(3) : '---';
 
    return (
       <div className="w-full h-full flex flex-col overflow-hidden relative">
@@ -199,7 +220,7 @@ export default function LeadLagCanvas() {
                           </div>
                           <div className="flex flex-col items-end">
                              <span className="text-2xl font-mono font-black text-accent-gold tabular-nums leading-none">
-                                {goldPrice > 0 ? goldPrice.toFixed(2) : '---'}
+                                {goldPrice > 0 ? goldPrice.toFixed(3) : '---'}
                              </span>
                              <span className={`text-[9px] font-black uppercase tracking-widest mt-1.5 ${isGoldClosed ? 'text-accent-red animate-pulse' : 'text-accent-green'}`}>
                                 {isGoldClosed ? 'Market Closed' : 'Master Active'}
@@ -229,26 +250,88 @@ export default function LeadLagCanvas() {
                           <div className="flex flex-col items-end border-r border-border/40 pr-4">
                              <span className="text-[9px] text-text-secondary/50 font-black tracking-wider uppercase mb-1">Deviation</span>
                              <span className="text-base font-mono font-black text-accent-gold tabular-nums leading-none">
-                                {isGoldClosed ? '---' : `${realDiff !== null ? '$' + realDiff.toFixed(2) : '0.00'}`}
+                                {isGoldClosed ? '---' : `${realDiff !== null ? '$' + realDiff.toFixed(3) : '0.000'}`}
                              </span>
                           </div>
 
                           {/* Signal Power */}
-                          <div className="flex flex-col items-start">
-                             <span className="text-[9px] text-text-secondary/50 font-black tracking-wider uppercase mb-1">Power</span>
-                             <div className="flex gap-1 mt-0.5">
-                                {[1, 2, 3, 4, 5].map(i => {
-                                   const confidence = signals && signals[0] ? signals[0].confidence : 50;
-                                   const power = isGoldClosed ? 0 : Math.min(5, Math.max(1, Math.ceil(confidence / 20)));
-                                   return (
-                                      <div key={i} className={`w-1.5 h-3 rounded-sm ${i <= power ? (indicatorLabel === 'BUY' ? 'bg-accent-green' : indicatorLabel === 'SELL' ? 'bg-accent-red' : 'bg-accent-gold/60') : 'bg-text-secondary/10'}`}></div>
-                                   );
-                                })}
+                           <div className="flex flex-col items-start">
+                              <span className="text-[9px] text-text-secondary/50 font-black tracking-wider uppercase mb-1">Power</span>
+                              <div className="flex gap-1 mt-0.5">
+                                 {[1, 2, 3, 4, 5].map(i => {
+                                    const scorePct = liveScore ? (liveScore.score / (liveScore.threshold || 100)) * 100 : 0;
+                                    const power = isGoldClosed ? 0 : Math.min(5, Math.max(1, Math.ceil(scorePct / 20)));
+                                    const isActive = i <= power;
+                                    const bgClass = isActive 
+                                       ? (indicatorLabel === 'BUY' ? 'bg-accent-green' : indicatorLabel === 'SELL' ? 'bg-accent-red' : 'bg-accent-gold') 
+                                       : 'bg-text-secondary';
+                                    const opacityClass = isActive 
+                                       ? (indicatorLabel === 'WAIT' ? 'opacity-60' : 'opacity-100') 
+                                       : 'opacity-15';
+                                    return (
+                                       <div key={i} className={`w-1.5 h-3 rounded-sm ${bgClass} ${opacityClass}`}></div>
+                                    );
+                                 })}
+                              </div>
+                           </div>
+                        </div>                         {/* SUPPORTING METRICS - DENSE 3-COLUMN ROWS */}                         {/* HFT TRIGGER RADAR GAUGE (Slim & Transparent) */}
+                          <div className="mt-3.5 space-y-2 animate-fade-in px-1">
+                             <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider">
+                                <span className="text-text-secondary flex items-center gap-1.5">
+                                   <span className="animate-pulse">📡</span> Trade Trigger Radar
+                                </span>
+                                <span className={`font-mono text-xs font-black ${
+                                   !liveScore ? 'text-text-secondary/50' :
+                                   (liveScore.score >= liveScore.threshold) ? 'text-accent-green animate-pulse' :
+                                   (liveScore.score >= liveScore.threshold * 0.7) ? 'text-accent-gold' : 'text-text-secondary'
+                                }`}>
+                                   {liveScore 
+                                      ? `Score: ${liveScore.score}/${liveScore.threshold} (${Math.round((liveScore.score / (liveScore.threshold || 100)) * 100)}%)` 
+                                      : 'WAITING FOR MOMENTUM...'}
+                                </span>
+                             </div>
+
+                             {/* Dynamic Progress Bar (Slim h-1.5) */}
+                             <div className="relative w-full h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                                {/* Required Threshold Indicator Dot (Positioned Live based on Settings!) */}
+                                <div 
+                                   className="absolute top-0 bottom-0 w-1 bg-accent-gold opacity-80 z-10 transition-all duration-300" 
+                                   style={{ left: `${systemSettings?.min_confidence || 85}%` }}
+                                   title={`Execution Threshold (${systemSettings?.min_confidence || 85}%)`}
+                                ></div>
+                                
+                                {/* Live Score Fill */}
+                                <div 
+                                   className={`h-full rounded-full transition-all duration-500 ease-out ${
+                                      !liveScore ? 'w-0' :
+                                      (liveScore.score >= liveScore.threshold) ? 'bg-accent-green shadow-[0_0_12px_#10b981]' :
+                                      (liveScore.score >= liveScore.threshold * 0.7) ? 'bg-accent-gold shadow-[0_0_12px_#f59e0b]' : 'bg-accent-blue opacity-60'
+                                   }`}
+                                   style={{ 
+                                      width: `${liveScore ? Math.min(100, (liveScore.score / (liveScore.threshold || 100)) * 100) : 0}%` 
+                                   }}
+                                ></div>
+                             </div>
+
+                             {/* Slim Contextual Info & Status */}
+                             <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-text-secondary/50 pt-0.5">
+                                <div className="flex gap-3">
+                                   <span>0% Idle</span>
+                                   <span className="text-accent-gold">Threshold ({systemSettings?.min_confidence || 85}%)</span>
+                                </div>
+                                <span className={`font-mono font-black ${
+                                   !liveScore ? 'text-text-secondary/80' :
+                                   (liveScore.score >= liveScore.threshold) ? 'text-accent-green' :
+                                   (liveScore.score >= liveScore.threshold * 0.7) ? 'text-accent-gold' : 'text-text-secondary/70'
+                                }`}>
+                                   {!liveScore ? 'SCANNING MARKETS...' :
+                                    (liveScore.score >= liveScore.threshold) ? '⚡ READY!' :
+                                    (liveScore.score >= liveScore.threshold * 0.7) ? '📈 MOMENTUM' :
+                                    '⏳ LOW MOMENTUM'}
+                                </span>
                              </div>
                           </div>
-                       </div>
 
-                       {/* SUPPORTING METRICS - DENSE 3-COLUMN ROWS */}
                        <div className="grid grid-cols-3 gap-x-4 gap-y-2 pt-3 text-[11px] border-t border-border/30">
                           {/* Market Context */}
                           <div className="flex flex-col gap-1 border-r border-border/30 pr-2">
@@ -323,7 +406,7 @@ export default function LeadLagCanvas() {
 
                     const isInverse = asset.correlation === 'inverse';
 
-                    if (Math.abs(gap) > 0.005) {
+                    if (Math.abs(gap) > VISUAL_THRESHOLD) {
                        if (gap > 0) {
                           signal = isInverse ? `${leaderPair.symbol} SELL` : `${leaderPair.symbol} BUY`;
                           signalColor = isInverse ? 'text-accent-red' : 'text-accent-green';
@@ -369,7 +452,7 @@ export default function LeadLagCanvas() {
                                </div>
                                <div className="flex flex-col items-end">
                                   <span className="text-2xl font-mono font-black text-text-primary tabular-nums">
-                                     {price > 0 ? price.toFixed(2) : '---'}
+                                     {price > 0 ? price.toFixed(3) : '---'}
                                   </span>
                                   {isMarketClosed && (
                                      <span className="text-[9px] text-accent-red font-black uppercase tracking-widest mt-1.5">Closed (UTC)</span>
@@ -408,18 +491,20 @@ export default function LeadLagCanvas() {
                                   <span className="text-[9px] text-text-secondary/50 font-black tracking-wider uppercase mb-1">Signal Power</span>
                                   <div className="flex gap-0.5 mt-0.5">
                                      {[1, 2, 3, 4, 5].map(i => {
-                                        const threshold = 0.001;
-                                        const power = isMarketClosed ? 0 : Math.min(5, Math.max(1, Math.ceil(Math.abs(gap) / threshold)));
+                                        const step = VISUAL_THRESHOLD / 5;
+                                        const power = isMarketClosed ? 0 : Math.min(5, Math.max(1, Math.ceil(Math.abs(gap) / (step || 0.003))));
                                         return (
-                                           <div key={i} className={`w-1 h-2 rounded-sm ${i <= power ? (gap >= 0 ? 'bg-accent-green' : 'bg-accent-red') : 'bg-text-secondary/10'}`}></div>
+                                           <div key={i} className={`w-1 h-2 rounded-sm ${i <= power ? (gap >= 0 ? 'bg-accent-green' : 'bg-accent-red') : 'bg-text-secondary opacity-15'}`}></div>
                                         );
                                      })}
                                   </div>
                                </div>
                             </div>
 
-                            {/* SUPPORTING METRICS - DENSE 3-COLUMN ROWS */}
-                            <div className="grid grid-cols-3 gap-x-4 gap-y-2 pt-3 text-[11px] border-t border-border/30">
+                        {/* SUPPORTING METRICS - DENSE 3-COLUMN ROWS */}
+
+
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-2 pt-3 text-[11px] border-t border-border/30">
                                {/* Market Context */}
                                <div className="flex flex-col gap-0.5 border-r border-border/30 pr-2">
                                   <div className="text-[9px] text-text-secondary/40 font-black tracking-wider uppercase mb-1">Market Context</div>
